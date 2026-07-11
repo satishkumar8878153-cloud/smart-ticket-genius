@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Sparkles, Train } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertCircle, Loader2, Sparkles, Train } from "lucide-react";
+import { useState } from "react";
 import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
 import { AlternateDates } from "@/components/smart-ticket/AlternateDates";
 import { AlternateStations } from "@/components/smart-ticket/AlternateStations";
@@ -8,19 +8,32 @@ import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommenda
 import { ClassMatrix } from "@/components/smart-ticket/ClassMatrix";
 import { SearchForm } from "@/components/smart-ticket/SearchForm";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
-import { generateSearchResult, type SearchQuery, type SearchResult } from "@/lib/mock-data";
+import type { SearchQuery, SearchResult } from "@/lib/mock-data";
+import { searchTrains } from "@/services/search.service";
 
 export const Route = createFileRoute("/")({
   component: Home,
 });
 
 function Home() {
-  const [query, setQuery] = useState<SearchQuery | null>(null);
+  const [result, setResult] = useState<SearchResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const result: SearchResult | null = useMemo(
-    () => (query ? generateSearchResult(query) : null),
-    [query],
-  );
+  async function handleSearch(query: SearchQuery) {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await searchTrains(query);
+      setResult(res);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -62,9 +75,28 @@ function Home() {
           </p>
         </section>
 
-        <SearchForm onSearch={setQuery} />
+        <SearchForm onSearch={handleSearch} loading={loading} />
 
-        {result ? (
+        {error && (
+          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-semibold">Search failed</div>
+              <p className="mt-0.5 text-destructive/90">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="mt-10 grid place-items-center rounded-3xl border border-border/60 bg-card/40 p-12 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <div className="mt-4 text-sm font-medium text-muted-foreground">
+              Analyzing trains, availability and predictions…
+            </div>
+          </div>
+        )}
+
+        {!loading && result ? (
           <div className="mt-10 space-y-6">
             <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
               <BestRecommendationCard train={result.best} />
@@ -76,7 +108,7 @@ function Home() {
               <AlternateDates dates={result.alternateDates} />
             </div>
           </div>
-        ) : (
+        ) : !loading && !error ? (
           <div className="mt-14 grid gap-4 text-center sm:grid-cols-3">
             {[
               { t: "Confirm probability", d: "See the chance your ticket will confirm before booking." },
@@ -92,10 +124,10 @@ function Home() {
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
         <footer className="mt-16 border-t border-border/60 pt-6 text-center text-xs text-muted-foreground">
-          Smart Ticket AI · Demo interface with simulated availability data
+          Smart Ticket AI · Powered by Lovable Cloud · Ready for FastAPI backend
         </footer>
       </main>
     </div>

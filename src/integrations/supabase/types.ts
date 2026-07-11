@@ -14,7 +14,138 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      availability_cache: {
+        Row: {
+          confirm_probability: number
+          fare: number | null
+          fetched_at: string
+          id: string
+          journey_date: string
+          status_label: string
+          status_tone: string
+          train_number: string
+          travel_class: string
+        }
+        Insert: {
+          confirm_probability?: number
+          fare?: number | null
+          fetched_at?: string
+          id?: string
+          journey_date: string
+          status_label: string
+          status_tone: string
+          train_number: string
+          travel_class: string
+        }
+        Update: {
+          confirm_probability?: number
+          fare?: number | null
+          fetched_at?: string
+          id?: string
+          journey_date?: string
+          status_label?: string
+          status_tone?: string
+          train_number?: string
+          travel_class?: string
+        }
+        Relationships: []
+      }
+      search_history: {
+        Row: {
+          created_at: string
+          destination: string
+          id: string
+          journey_date: string
+          source: string
+          travel_class: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          destination: string
+          id?: string
+          journey_date: string
+          source: string
+          travel_class: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          destination?: string
+          id?: string
+          journey_date?: string
+          source?: string
+          travel_class?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      stations: {
+        Row: {
+          city: string | null
+          code: string
+          created_at: string
+          id: string
+          is_popular: boolean
+          name: string
+        }
+        Insert: {
+          city?: string | null
+          code: string
+          created_at?: string
+          id?: string
+          is_popular?: boolean
+          name: string
+        }
+        Update: {
+          city?: string | null
+          code?: string
+          created_at?: string
+          id?: string
+          is_popular?: boolean
+          name?: string
+        }
+        Relationships: []
+      }
+      trains: {
+        Row: {
+          arrival_time: string
+          created_at: string
+          departure_time: string
+          destination_code: string
+          duration: string
+          id: string
+          runs_on: string[]
+          source_code: string
+          train_name: string
+          train_number: string
+        }
+        Insert: {
+          arrival_time: string
+          created_at?: string
+          departure_time: string
+          destination_code: string
+          duration: string
+          id?: string
+          runs_on?: string[]
+          source_code: string
+          train_name: string
+          train_number: string
+        }
+        Update: {
+          arrival_time?: string
+          created_at?: string
+          departure_time?: string
+          destination_code?: string
+          duration?: string
+          id?: string
+          runs_on?: string[]
+          source_code?: string
+          train_name?: string
+          train_number?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

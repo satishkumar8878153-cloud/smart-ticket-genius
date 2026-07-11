@@ -111,10 +111,17 @@ function Home() {
               <AIInsightsPanel insights={result.aiInsights} />
             </div>
             <ClassMatrix trains={[result.best, ...result.otherTrains]} />
+            {mission ? <MissionConfirm plans={mission.plans} /> : null}
             <div className="grid gap-6 lg:grid-cols-2">
               <AlternateStations stations={result.alternateStations} />
               <AlternateDates dates={result.alternateDates} />
             </div>
+            {mission ? (
+              <>
+                <TatkalStrategy tatkal={mission.tatkal} />
+                <JourneyGuardian tasks={mission.guardian} />
+              </>
+            ) : null}
           </div>
         ) : !loading && !error ? (
           <div className="mt-14 grid gap-4 text-center sm:grid-cols-3">

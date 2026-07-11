@@ -1,5 +1,5 @@
-import { ArrowRightLeft, CalendarDays, MapPin, Search, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { ArrowRightLeft, CalendarDays, Loader2, MapPin, Search, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,13 +10,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CLASSES, POPULAR_STATIONS, type SearchQuery, type TicketClass } from "@/lib/mock-data";
+import { CLASSES, type SearchQuery, type TicketClass } from "@/lib/mock-data";
+import { fetchStations } from "@/services/stations.service";
+import type { Station } from "@/services/types";
 
-export function SearchForm({ onSearch }: { onSearch: (q: SearchQuery) => void }) {
+export function SearchForm({
+  onSearch,
+  loading = false,
+}: {
+  onSearch: (q: SearchQuery) => void;
+  loading?: boolean;
+}) {
   const [source, setSource] = useState("New Delhi");
   const [destination, setDestination] = useState("Mumbai Central");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [travelClass, setTravelClass] = useState<TicketClass>("3A");
+  const [stations, setStations] = useState<Station[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchStations()
+      .then((rows) => {
+        if (!cancelled) setStations(rows);
+      })
+      .catch((err) => {
+        console.error("Failed to load stations", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const swap = () => {
     setSource(destination);
@@ -25,7 +48,7 @@ export function SearchForm({ onSearch }: { onSearch: (q: SearchQuery) => void })
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!source || !destination) return;
+    if (!source || !destination || loading) return;
     onSearch({ source, destination, date, travelClass });
   };
 
@@ -117,15 +140,24 @@ export function SearchForm({ onSearch }: { onSearch: (q: SearchQuery) => void })
 
         <Button
           type="submit"
-          className="gradient-primary h-12 rounded-xl px-6 text-base font-semibold text-primary-foreground shadow-elegant transition-transform hover:scale-[1.02]"
+          disabled={loading}
+          className="gradient-primary h-12 rounded-xl px-6 text-base font-semibold text-primary-foreground shadow-elegant transition-transform hover:scale-[1.02] disabled:opacity-70"
         >
-          <Search className="mr-2 h-4 w-4" /> Search
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Searching…
+            </>
+          ) : (
+            <>
+              <Search className="mr-2 h-4 w-4" /> Search
+            </>
+          )}
         </Button>
       </div>
 
       <datalist id="stations">
-        {POPULAR_STATIONS.map((s) => (
-          <option key={s} value={s} />
+        {stations.map((s) => (
+          <option key={s.code} value={s.name} />
         ))}
       </datalist>
     </form>

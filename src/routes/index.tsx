@@ -10,6 +10,10 @@ import { SearchForm } from "@/components/smart-ticket/SearchForm";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
 import type { SearchQuery, SearchResult } from "@/lib/mock-data";
 import { searchTrains } from "@/services/search.service";
+import { generateMissionConfirm, type MissionConfirmResult } from "@/services/mission.service";
+import { MissionConfirm } from "@/components/smart-ticket/MissionConfirm";
+import { TatkalStrategy } from "@/components/smart-ticket/TatkalStrategy";
+import { JourneyGuardian } from "@/components/smart-ticket/JourneyGuardian";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -17,6 +21,7 @@ export const Route = createFileRoute("/")({
 
 function Home() {
   const [result, setResult] = useState<SearchResult | null>(null);
+  const [mission, setMission] = useState<MissionConfirmResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,10 +31,13 @@ function Home() {
     try {
       const res = await searchTrains(query);
       setResult(res);
+      const missionRes = await generateMissionConfirm(query, res);
+      setMission(missionRes);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong.";
       setError(message);
       setResult(null);
+      setMission(null);
     } finally {
       setLoading(false);
     }
@@ -103,10 +111,17 @@ function Home() {
               <AIInsightsPanel insights={result.aiInsights} />
             </div>
             <ClassMatrix trains={[result.best, ...result.otherTrains]} />
+            {mission ? <MissionConfirm plans={mission.plans} /> : null}
             <div className="grid gap-6 lg:grid-cols-2">
               <AlternateStations stations={result.alternateStations} />
               <AlternateDates dates={result.alternateDates} />
             </div>
+            {mission ? (
+              <>
+                <TatkalStrategy tatkal={mission.tatkal} />
+                <JourneyGuardian tasks={mission.guardian} />
+              </>
+            ) : null}
           </div>
         ) : !loading && !error ? (
           <div className="mt-14 grid gap-4 text-center sm:grid-cols-3">

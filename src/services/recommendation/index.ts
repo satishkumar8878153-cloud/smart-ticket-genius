@@ -8,6 +8,7 @@ import { apiFetch, USE_FASTAPI } from "../api-client";
 import type { SearchResult } from "../types";
 import { explain } from "./explainer";
 import { enumerateTravelOptions } from "./option-generator";
+import { RecommendationEngineV2, toLegacyScored } from "./recommendation-v2/recommendation-v2";
 import { WeightedLinearScorer } from "./scoring-model";
 import type {
   ScoredOption,
@@ -40,12 +41,18 @@ export async function rankOptions(
     });
   }
 
-  const model = opts.model ?? new WeightedLinearScorer();
-  const weights = mergeWeights(opts.weights);
-  const options = enumerateTravelOptions(result);
-  const scored = await model.score(options, weights);
-  const explained = scored.map(explain);
-  return explained.sort((a, b) => b.missionScore - a.missionScore);
+  // Default local path — Recommendation Engine V2 multi-stage pipeline.
+  // Legacy `WeightedLinearScorer` remains available via opts.model for A/B.
+  if (opts.model) {
+    const weights = mergeWeights(opts.weights);
+    const options = enumerateTravelOptions(result);
+    const scored = await opts.model.score(options, weights);
+    return scored.map(explain).sort((a, b) => b.missionScore - a.missionScore);
+  }
+
+  const v2 = new RecommendationEngineV2();
+  const { ranked } = v2.run(result);
+  return ranked.map(toLegacyScored);
 }
 
 // Selects three complementary plans from ranked options.

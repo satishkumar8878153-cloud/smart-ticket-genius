@@ -1,7 +1,7 @@
 // Recommendation Engine V2 orchestrator. Every engine is injected — swap any
 // module for a FastAPI-backed implementation without changing this file.
 
-import type { SearchResult, TicketClass } from "../types";
+import type { SearchResult, TicketClass } from "../../types";
 import type { ScoredOption as LegacyScoredOption } from "../types";
 import { enumerateTravelOptions } from "../option-generator";
 

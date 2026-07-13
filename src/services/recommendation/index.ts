@@ -8,6 +8,7 @@ import { apiFetch, USE_FASTAPI } from "../api-client";
 import type { SearchResult } from "../types";
 import { explain } from "./explainer";
 import { enumerateTravelOptions } from "./option-generator";
+import { RecommendationEngineV2, toLegacyScored } from "./recommendation-v2/recommendation-v2";
 import { WeightedLinearScorer } from "./scoring-model";
 import type {
   ScoredOption,

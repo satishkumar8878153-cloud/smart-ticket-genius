@@ -58,6 +58,43 @@ export type FeatureContribution = {
   contribution: number;  // value * weight
 };
 
+// V2 intelligence bundle attached to every scored option. Kept optional so
+// legacy callers (and the current UI) keep compiling unchanged.
+export type IntelligenceBundle = {
+  decisionScore: number;              // 0..100 multi-factor decision score
+  decisionBreakdown: Array<{
+    factor: string;
+    value: number;
+    weight: number;
+    contribution: number;
+  }>;
+  demandIndex: number;                // 0..100
+  demandBand: "low" | "moderate" | "high" | "extreme";
+  festivalPeak: string | null;
+  examPeak: string | null;
+  historicalConfirmTrend: number;     // 0..100
+  seasonalDemand: number;             // 0..100
+  trainPopularity: number;            // 0..100
+  waitlist: {
+    movementSpeed: "fast" | "moderate" | "slow" | "stalled";
+    movementPerDay: number;
+    racConversionChance: number;
+    finalConfirmChance: number;
+    waitingRiskScore: number;
+    currentPosition: number | null;
+    daysToChart: number;
+  };
+  boardingSuggestion: {
+    suggestedStation: string;
+    suggestedStationCode: string;
+    expectedImprovement: number;
+    additionalTravelMinutes: number;
+    worthwhile: boolean;
+  } | null;
+  whySelected: string[];
+  whyRejected: string[];
+};
+
 export type ScoredOption = {
   option: TravelOption;
   missionScore: number;               // 0..100
@@ -70,6 +107,7 @@ export type ScoredOption = {
   cons: string[];
   features: FeatureVector;
   contributions: FeatureContribution[]; // sorted desc by contribution
+  intelligence?: IntelligenceBundle;    // v2 enrichment (optional for BC)
 };
 
 // Pluggable scorer contract. A FastAPI backend can implement this by making

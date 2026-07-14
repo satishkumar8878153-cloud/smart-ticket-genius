@@ -1,27 +1,23 @@
 // Recommendation Engine facade.
-// - `rankOptions` enumerates all travel options for a SearchResult and returns
-//   them sorted by mission score (FastAPI can replace the scorer entirely).
+// - `rankOptions` runs Engine V2.1 (multi-factor decision score + full
+//   intelligence bundle per option) and returns the ranked list.
+// - `runEngineV2` exposes the full engine result (ranked options plus
+//   alternate-date intelligence, festival + exam context) for callers that
+//   need more than a bare ranking.
 // - `pickMissionPlans` selects three complementary strategies (best overall,
 //   fastest alternative, backup) from the ranked list.
 
 import { apiFetch, USE_FASTAPI } from "../api-client";
 import type { SearchResult } from "../types";
-import { explain } from "./explainer";
+import type { DecisionWeights } from "./decision-score";
+import { runRecommendationEngineV2, type EngineV2Options } from "./engine-v2";
 import { enumerateTravelOptions } from "./option-generator";
-import { WeightedLinearScorer } from "./scoring-model";
-import type {
-  ScoredOption,
-  ScoreWeights,
-  ScoringModel,
-  TravelOption,
-} from "./types";
-import { DEFAULT_WEIGHTS, mergeWeights } from "./weights";
+import type { ScoredOption } from "./types";
 
 export type MissionPickKind = "A" | "B" | "C";
 
 export type EngineOptions = {
-  model?: ScoringModel;
-  weights?: Partial<ScoreWeights>;
+  weights?: Partial<DecisionWeights>;
 };
 
 export async function rankOptions(
@@ -35,17 +31,19 @@ export async function rankOptions(
       body: JSON.stringify({
         query: result.query,
         options: enumerateTravelOptions(result),
-        weights: mergeWeights(opts.weights),
+        weights: opts.weights,
       }),
     });
   }
+  const v2 = await runRecommendationEngineV2(result, opts as EngineV2Options);
+  return v2.ranked;
+}
 
-  const model = opts.model ?? new WeightedLinearScorer();
-  const weights = mergeWeights(opts.weights);
-  const options = enumerateTravelOptions(result);
-  const scored = await model.score(options, weights);
-  const explained = scored.map(explain);
-  return explained.sort((a, b) => b.missionScore - a.missionScore);
+export async function runEngineV2(
+  result: SearchResult,
+  opts: EngineV2Options = {},
+) {
+  return runRecommendationEngineV2(result, opts);
 }
 
 // Selects three complementary plans from ranked options.
@@ -78,7 +76,7 @@ export function pickMissionPlans(
           r.option.travelClass !== A.option.travelClass),
     ) ?? ranked[2] ?? B;
 
-  return { A, B: B, C: backup };
+  return { A, B, C: backup };
 }
 
 function durationMin(d: string): number {
@@ -87,5 +85,15 @@ function durationMin(d: string): number {
   return Number(m[1]) * 60 + Number(m[2] ?? 0);
 }
 
-export { DEFAULT_WEIGHTS, WeightedLinearScorer, enumerateTravelOptions };
-export type { ScoredOption, ScoreWeights, ScoringModel, TravelOption };
+export { enumerateTravelOptions };
+export { WeightedLinearScorer } from "./scoring-model";
+export { DEFAULT_WEIGHTS } from "./weights";
+export { DEFAULT_DECISION_WEIGHTS } from "./decision-score";
+export type { DecisionWeights, DecisionFactor, DecisionScore } from "./decision-score";
+export type {
+  IntelligenceBundle,
+  ScoredOption,
+  ScoreWeights,
+  ScoringModel,
+  TravelOption,
+} from "./types";

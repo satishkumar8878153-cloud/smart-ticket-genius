@@ -137,7 +137,29 @@ def search(query: SearchQuery) -> SearchResult:
         alternateDates=alternate_dates,
         aiInsights=ai_insights,
     )
+from chat import parse_intent, explain_result
 
+@app.post("/chat")
+def chat(payload: dict):
+    message = payload.get("message", "")
+    intent = parse_intent(message)
+
+    missing = [k for k in ("source", "destination", "date") if not intent.get(k)]
+    if missing:
+        return {
+            "reply": f"I need a bit more info — could you tell me your {', '.join(missing)}?",
+            "result": None,
+        }
+
+    query = SearchQuery(
+        source=intent["source"],
+        destination=intent["destination"],
+        date=intent["date"],
+        travelClass=intent.get("travelClass") or "SL",
+    )
+    result = search(query)
+    reply = explain_result(message, result.model_dump())
+    return {"reply": reply, "result": result.model_dump()}
 
 @app.get("/health")
 def health():

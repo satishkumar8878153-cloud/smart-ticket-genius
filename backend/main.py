@@ -12,7 +12,7 @@ from models import (
     ALL_CLASSES,
 )
 from prediction import heuristic_confirmation_score, recommendation_score
-from db import fetch_trains_for_route
+from db import fetch_trains_for_route, fetch_pnr_stats
 
 app = FastAPI(title="Smart Ticket AI — Phase 1 API")
 
@@ -47,6 +47,31 @@ def _build_availability(journey_date: str, days_before: int) -> dict:
     }
 
 
+def _confirmation_score_and_reason(
+    train_number: str, travel_class: str, journey_date: str, days_before: int
+) -> tuple[int, str]:
+    stats = fetch_pnr_stats(train_number, travel_class)
+    if stats and stats["total"] > 0:
+        score = round(stats["confirm_rate"] * 100)
+        score = max(2, min(98, score))
+        sample_note = (
+            "small sample" if stats["total"] < 10 else f"{stats['total']} bookings"
+        )
+        reason = (
+            f"{stats['confirmed']}/{stats['total']} historically confirmed on this "
+            f"train/class ({sample_note})."
+        )
+        return score, reason
+
+    score = heuristic_confirmation_score(travel_class, journey_date, days_before)
+    reason = (
+        f"{score}% estimated confirmation chance in {travel_class} "
+        f"based on booking {days_before} day(s) before journey. "
+        f"(Estimated — no historical data for this train yet.)"
+    )
+    return score, reason
+
+
 @app.post("/search", response_model=SearchResult)
 def search(query: SearchQuery) -> SearchResult:
     train_rows = fetch_trains_for_route(query.source, query.destination)
@@ -60,8 +85,8 @@ def search(query: SearchQuery) -> SearchResult:
 
     recommendations = []
     for t in train_rows:
-        confirm = heuristic_confirmation_score(
-            query.travelClass, query.date, days_before
+        confirm, reason = _confirmation_score_and_reason(
+            t["train_number"], query.travelClass, query.date, days_before
         )
         try:
             h, m = t["duration"].lower().replace("h", "").replace("m", "").split()
@@ -78,10 +103,7 @@ def search(query: SearchQuery) -> SearchResult:
             confirmProbability=confirm,
             recommendationScore=recommendation_score(confirm, duration_minutes, fare=800),
             bestClass=query.travelClass,
-            reason=(
-                f"{confirm}% estimated confirmation chance in {query.travelClass} "
-                f"based on booking {days_before} day(s) before journey."
-            ),
+            reason=reason,
             availability=_build_availability(query.date, days_before),
         )
         recommendations.append(rec)
@@ -137,6 +159,13 @@ def search(query: SearchQuery) -> SearchResult:
         alternateDates=alternate_dates,
         aiInsights=ai_insights,
     )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 from chat import parse_intent, explain_result
 
 @app.post("/chat")
@@ -160,7 +189,3 @@ def chat(payload: dict):
     result = search(query)
     reply = explain_result(message, result.model_dump())
     return {"reply": reply, "result": result.model_dump()}
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}

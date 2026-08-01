@@ -1,9 +1,9 @@
 from typing import Literal, List, Dict
 from pydantic import BaseModel
 
-TicketClass = Literal["SL", "3A", "2A", "1A", "CC", "EC"]
+TicketClass = Literal["SL", "3A", "2A", "1A", "CC", "EC", "2S"]
 Tone = Literal["success", "warning", "danger", "muted"]
-ALL_CLASSES: List[TicketClass] = ["SL", "3A", "2A", "1A", "CC", "EC"]
+ALL_CLASSES: List[TicketClass] = ["SL", "3A", "2A", "1A", "CC", "EC", "2S"]
 
 
 class SeatStatus(BaseModel):

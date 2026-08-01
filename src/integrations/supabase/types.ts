@@ -50,6 +50,48 @@ export type Database = {
         }
         Relationships: []
       }
+      pnr_history: {
+        Row: {
+          booking_status: string | null
+          class_code: string
+          confirmed: boolean
+          created_at: string
+          final_status: string | null
+          id: string
+          journey_date: string | null
+          quota: string | null
+          train_number: string
+          updated_at: string
+          verified: boolean
+        }
+        Insert: {
+          booking_status?: string | null
+          class_code: string
+          confirmed?: boolean
+          created_at?: string
+          final_status?: string | null
+          id?: string
+          journey_date?: string | null
+          quota?: string | null
+          train_number: string
+          updated_at?: string
+          verified?: boolean
+        }
+        Update: {
+          booking_status?: string | null
+          class_code?: string
+          confirmed?: boolean
+          created_at?: string
+          final_status?: string | null
+          id?: string
+          journey_date?: string | null
+          quota?: string | null
+          train_number?: string
+          updated_at?: string
+          verified?: boolean
+        }
+        Relationships: []
+      }
       search_history: {
         Row: {
           created_at: string

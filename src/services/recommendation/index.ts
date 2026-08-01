@@ -24,17 +24,23 @@ export async function rankOptions(
   result: SearchResult,
   opts: EngineOptions = {},
 ): Promise<ScoredOption[]> {
-  // Full remote path — FastAPI backend computes scores end-to-end.
+  // Full remote path — FastAPI backend computes scores end-to-end (optional).
   if (USE_FASTAPI) {
-    return apiFetch<ScoredOption[]>("/recommendations", {
-      method: "POST",
-      body: JSON.stringify({
-        query: result.query,
-        options: enumerateTravelOptions(result),
-        weights: opts.weights,
-      }),
-    });
+    try {
+      const remote = await apiFetch<ScoredOption[]>("/recommendations", {
+        method: "POST",
+        body: JSON.stringify({
+          query: result.query,
+          options: enumerateTravelOptions(result),
+          weights: opts.weights,
+        }),
+      });
+      if (Array.isArray(remote) && remote.length > 0) return remote;
+    } catch (err) {
+      console.warn("FastAPI /recommendations unavailable, ranking locally", err);
+    }
   }
+
   const v2 = await runRecommendationEngineV2(result, opts as EngineV2Options);
   return v2.ranked;
 }

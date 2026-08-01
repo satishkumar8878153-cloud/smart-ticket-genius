@@ -99,18 +99,25 @@ async function logSearch(query: SearchQuery) {
 
 export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
   if (USE_FASTAPI) {
-    const result = await apiFetch<SearchResult>("/search", {
-      method: "POST",
-      body: JSON.stringify(query),
-    });
-    void logSearch(query);
-    return result;
+    try {
+      const result = await apiFetch<SearchResult>("/search", {
+        method: "POST",
+        body: JSON.stringify(query),
+      });
+      void logSearch(query);
+      return result;
+    } catch (err) {
+      // 4xx from the API is a real, user-meaningful answer (e.g. no trains found).
+      if (err instanceof ApiError && err.status >= 400 && err.status < 500) throw err;
+      console.warn("FastAPI /search unavailable, falling back to database", err);
+    }
   }
 
   const trainRows = await fetchTrainsForRoute(query.source, query.destination);
   if (trainRows.length === 0) {
     throw new ApiError("No trains found for this route yet. Try nearby major stations.", 404);
   }
+
 
   const r = seed(
     `${query.source}-${query.destination}-${query.date}-${query.travelClass}`,

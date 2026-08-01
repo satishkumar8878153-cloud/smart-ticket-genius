@@ -215,18 +215,23 @@ export async function runRecommendationEngineV2(
   result: SearchResult,
   opts: EngineV2Options = {},
 ): Promise<EngineV2Result> {
-  // FastAPI can override the full ranking pipeline.
+  // FastAPI can override the full ranking pipeline (falls back to local scoring).
   if (USE_FASTAPI) {
-    const remote = await apiFetch<EngineV2Result>("/recommendations/v2", {
-      method: "POST",
-      body: JSON.stringify({
-        query: result.query,
-        options: enumerateTravelOptions(result),
-        weights: mergeDecisionWeights(opts.weights),
-      }),
-    });
-    return remote;
+    try {
+      const remote = await apiFetch<EngineV2Result>("/recommendations/v2", {
+        method: "POST",
+        body: JSON.stringify({
+          query: result.query,
+          options: enumerateTravelOptions(result),
+          weights: mergeDecisionWeights(opts.weights),
+        }),
+      });
+      if (remote?.ranked?.length) return remote;
+    } catch (err) {
+      console.warn("FastAPI /recommendations/v2 unavailable, scoring locally", err);
+    }
   }
+
 
   const ctx = buildJourneyContext(result.query, opts.now);
   const pool = enumerateTravelOptions(result);

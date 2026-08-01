@@ -40,3 +40,36 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
         and (r["destination_code"].lower() == dst or dst in r["destination_code"].lower())
     ]
     return matches if matches else rows[:5]
+
+
+def fetch_pnr_stats(train_number: str, class_code: str, quota: str | None = None) -> dict | None:
+    """
+    Looks up real, verified PNR history for this exact train + class
+    (optionally + quota). Returns None if we have no real data yet, so the
+    caller can fall back to the heuristic model.
+
+    Returns: {"confirmed": int, "total": int, "confirm_rate": float}
+    """
+    client = get_client()
+    query = (
+        client.table("pnr_history")
+        .select("confirmed")
+        .eq("train_number", train_number)
+        .eq("class_code", class_code)
+        .eq("verified", True)
+    )
+    if quota:
+        query = query.eq("quota", quota)
+
+    resp = query.execute()
+    rows = resp.data or []
+    if not rows:
+        return None
+
+    total = len(rows)
+    confirmed = sum(1 for r in rows if r["confirmed"])
+    return {
+        "confirmed": confirmed,
+        "total": total,
+        "confirm_rate": confirmed / total,
+    }

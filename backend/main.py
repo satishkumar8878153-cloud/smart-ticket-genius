@@ -155,7 +155,11 @@ def search(query: SearchQuery) -> SearchResult:
         for i, name in enumerate(["Central Jn", "Cantt", "City Jn", "Terminus"])
     ]
 
-    today = date.fromisoformat(query.date) if query.date else date.today()
+    try:
+        today = date.fromisoformat(query.date) if query.date else date.today()
+    except ValueError:
+        today = date.today()
+
     alternate_dates = []
     for i in range(7):
         d = today + timedelta(days=i)

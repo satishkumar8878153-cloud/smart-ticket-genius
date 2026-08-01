@@ -1,6 +1,8 @@
+import traceback
 from datetime import date, timedelta
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from models import (
     SearchQuery,
@@ -12,7 +14,7 @@ from models import (
     ALL_CLASSES,
 )
 from prediction import heuristic_confirmation_score, recommendation_score
-from db import fetch_trains_for_route, fetch_pnr_stats
+from db import fetch_trains_for_route, fetch_pnr_stats, fetch_stations
 
 app = FastAPI(title="Smart Ticket AI — Phase 1 API")
 
@@ -22,6 +24,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Log the traceback and always return a CORS-safe JSON error."""
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal error in {request.url.path}: {exc}"},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
+@app.get("/stations")
+def stations() -> list[dict]:
+    rows = fetch_stations()
+    return [
+        {
+            "code": r.get("code"),
+            "name": r.get("name"),
+            "city": r.get("city"),
+            "is_popular": bool(r.get("is_popular", False)),
+        }
+        for r in rows
+    ]
+
 
 
 def _days_before(journey_date_str: str) -> int:

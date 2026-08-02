@@ -258,15 +258,39 @@ def search(query: SearchQuery) -> SearchResult:
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    from db import SUPABASE_URL, SUPABASE_KEY
+
+    configured = bool(SUPABASE_URL and SUPABASE_KEY)
+    stations_count = len(fetch_stations()) if configured else 0
+    return {
+        "status": "ok",
+        "database": {
+            "configured": configured,
+            "reachable": stations_count > 0,
+            "stations": stations_count,
+        },
+    }
 
 
 from chat import parse_intent, explain_result
 
+
 @app.post("/chat")
 def chat(payload: dict):
-    message = payload.get("message", "")
-    intent = parse_intent(message)
+    message = str(payload.get("message", "") or "").strip()
+    if not message:
+        return {"reply": "Tell me where you'd like to travel and when.", "result": None}
+
+    log.info("chat | message=%r", message[:120])
+    try:
+        intent = parse_intent(message)
+    except Exception as exc:
+        log.exception("chat | intent parsing failed: %s", exc)
+        return {
+            "reply": "I couldn't understand that right now. Try the search form above, "
+            "or rephrase like: 'Delhi to Mumbai tomorrow in 3A'.",
+            "result": None,
+        }
 
     missing = [k for k in ("source", "destination", "date") if not intent.get(k)]
     if missing:
@@ -281,6 +305,18 @@ def chat(payload: dict):
         date=intent["date"],
         travelClass=intent.get("travelClass") or "SL",
     )
-    result = search(query)
-    reply = explain_result(message, result.model_dump())
+    try:
+        result = search(query)
+    except HTTPException as exc:
+        return {"reply": str(exc.detail), "result": None}
+
+    try:
+        reply = explain_result(message, result.model_dump())
+    except Exception as exc:
+        log.exception("chat | explanation failed: %s", exc)
+        reply = (
+            f"Best option: {result.best.trainName} ({result.best.trainNumber}), "
+            f"~{result.best.confirmProbability}% confirmation chance."
+        )
     return {"reply": reply, "result": result.model_dump()}
+

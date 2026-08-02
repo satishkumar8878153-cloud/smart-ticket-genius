@@ -57,32 +57,58 @@ function buildAvailability(r: () => number, bias = 0): ClassAvailability {
   return out;
 }
 
-async function fetchTrainsForRoute(source: string, destination: string): Promise<TrainRow[]> {
-  // Match on code OR partial name so users can type either "NDLS" or "New Delhi".
-  const src = source.trim();
-  const dst = destination.trim();
+/** Build the set of lowercase tokens (code / name / city) that identify a station. */
+function stationTokens(value: string, stations: { code: string; name: string; city: string | null }[]) {
+  const v = value.trim().toLowerCase();
+  const tokens = new Set<string>();
+  if (v) tokens.add(v);
+  for (const s of stations) {
+    const fields = [s.code ?? "", s.name ?? "", s.city ?? ""]
+      .map((f) => String(f).toLowerCase())
+      .filter(Boolean);
+    if (v && fields.some((f) => f === v || f.includes(v) || v.includes(f))) {
+      fields.forEach((f) => tokens.add(f));
+    }
+  }
+  return tokens;
+}
 
-  const { data, error } = await supabase
-    .from("trains")
-    .select(
-      "train_number, train_name, source_code, destination_code, departure_time, arrival_time, duration",
-    );
+function tokenMatches(code: string, tokens: Set<string>) {
+  const c = String(code ?? "").toLowerCase();
+  if (!c) return false;
+  for (const t of tokens) {
+    if (t === c || t.includes(c) || c.includes(t)) return true;
+  }
+  return false;
+}
+
+async function fetchTrainsForRoute(source: string, destination: string): Promise<TrainRow[]> {
+  const [{ data, error }, stationRes] = await Promise.all([
+    supabase
+      .from("trains")
+      .select(
+        "train_number, train_name, source_code, destination_code, departure_time, arrival_time, duration",
+      ),
+    supabase.from("stations").select("code, name, city"),
+  ]);
   if (error) throw new ApiError(error.message);
   const rows = (data ?? []) as TrainRow[];
+  const stations = (stationRes.data ?? []) as { code: string; name: string; city: string | null }[];
 
-  // Best-effort match: exact code first, then fuzzy name (client-side; the set is small).
-  const matches = rows.filter((t) => {
-    const s = `${t.source_code}`.toLowerCase();
-    const d = `${t.destination_code}`.toLowerCase();
-    return (
-      (s === src.toLowerCase() || src.toLowerCase().includes(s)) &&
-      (d === dst.toLowerCase() || dst.toLowerCase().includes(d))
-    );
-  });
+  const srcTokens = stationTokens(source, stations);
+  const dstTokens = stationTokens(destination, stations);
 
-  // Fallback: if no exact-route match, return the top few trains as generic candidates.
-  return matches.length > 0 ? matches : rows.slice(0, 5);
+  // 1. Exact route match (origin + destination).
+  const exact = rows.filter(
+    (t) => tokenMatches(t.source_code, srcTokens) && tokenMatches(t.destination_code, dstTokens),
+  );
+  if (exact.length > 0) return exact;
+
+  // 2. Partial match: at least the origin is served.
+  const partial = rows.filter((t) => tokenMatches(t.source_code, srcTokens));
+  return partial;
 }
+
 
 async function logSearch(query: SearchQuery) {
   try {
@@ -107,10 +133,11 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
       void logSearch(query);
       return result;
     } catch (err) {
-      // 4xx from the API is a real, user-meaningful answer (e.g. no trains found).
-      if (err instanceof ApiError && err.status >= 400 && err.status < 500) throw err;
+      // Any FastAPI failure (including "no trains found") falls through to the
+      // database path — the remote service may simply have no DB connection.
       console.warn("FastAPI /search unavailable, falling back to database", err);
     }
+
   }
 
   const trainRows = await fetchTrainsForRoute(query.source, query.destination);

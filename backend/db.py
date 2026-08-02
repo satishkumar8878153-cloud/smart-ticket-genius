@@ -102,7 +102,9 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
     if partial:
         return partial
 
-    return rows[:5]
+    # Unknown / unserved route — let the caller return a clean 404.
+    return []
+
 
 
 def fetch_pnr_stats(train_number: str, class_code: str, quota: str | None = None) -> dict | None:

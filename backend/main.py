@@ -151,14 +151,28 @@ def _confirmation_score_and_reason(
 
 @app.post("/search", response_model=SearchResult)
 def search(query: SearchQuery) -> SearchResult:
-    train_rows = fetch_trains_for_route(query.source, query.destination)
+    log.info(
+        "search | %s -> %s on %s (%s)",
+        query.source, query.destination, query.date, query.travelClass,
+    )
+    try:
+        train_rows = fetch_trains_for_route(query.source, query.destination)
+    except Exception as exc:
+        log.exception("fetch_trains_for_route failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Train database is temporarily unreachable. Please retry.",
+        )
+
     if not train_rows:
+        log.warning("search | no trains for %s -> %s", query.source, query.destination)
         raise HTTPException(
             status_code=404,
             detail="No trains found for this route yet. Try nearby major stations.",
         )
 
     days_before = _days_before(query.date)
+
 
     recommendations = []
     for t in train_rows:

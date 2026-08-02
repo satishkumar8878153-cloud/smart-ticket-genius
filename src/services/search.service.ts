@@ -133,10 +133,11 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
       void logSearch(query);
       return result;
     } catch (err) {
-      // 4xx from the API is a real, user-meaningful answer (e.g. no trains found).
-      if (err instanceof ApiError && err.status >= 400 && err.status < 500) throw err;
+      // Any FastAPI failure (including "no trains found") falls through to the
+      // database path — the remote service may simply have no DB connection.
       console.warn("FastAPI /search unavailable, falling back to database", err);
     }
+
   }
 
   const trainRows = await fetchTrainsForRoute(query.source, query.destination);

@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { AlertCircle, Loader2, Sparkles, Train } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { AlertCircle, Loader2, MessageSquare, Sparkles, Train } from "lucide-react";
 import { useState } from "react";
 import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
 import { AlternateDates } from "@/components/smart-ticket/AlternateDates";

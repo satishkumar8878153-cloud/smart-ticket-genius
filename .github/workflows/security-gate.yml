@@ -1,0 +1,55 @@
+name: Security Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Deployments must depend on this job; a failure here blocks the release.
+jobs:
+  security-scan:
+    name: Dependency security scan (fails on high/critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate npm lockfile for auditing
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Run security gate
+        run: node scripts/security-gate.mjs
+
+  deploy:
+    name: Deploy
+    needs: security-scan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      # Add the real deploy command here. It only runs when the
+      # security gate job above has passed.
+      - name: Deploy
+        run: echo "Security gate passed — running deployment step."

@@ -115,27 +115,28 @@ def fetch_pnr_stats(train_number: str, class_code: str, quota: str | None = None
     """
     try:
         client = get_client()
-        query = (
-            client.table("pnr_history")
-            .select("confirmed")
-            .eq("train_number", train_number)
-            .eq("class_code", class_code)
-            .eq("verified", True)
-        )
-        if quota:
-            query = query.eq("quota", quota)
-
-        resp = query.execute()
+        resp = client.rpc(
+            "pnr_confirm_stats",
+            {
+                "_train_number": train_number,
+                "_class_code": class_code,
+                "_quota": quota,
+            },
+        ).execute()
         rows = resp.data or []
-    except Exception as exc:  # table missing, RLS, network — all non-fatal
+    except Exception as exc:  # function missing, network — all non-fatal
         print(f"[db] fetch_pnr_stats unavailable: {exc}")
         return None
 
-    if not rows:
+    row = rows[0] if isinstance(rows, list) and rows else (rows if isinstance(rows, dict) else None)
+    if not row:
         return None
 
-    total = len(rows)
-    confirmed = sum(1 for r in rows if r.get("confirmed"))
+    total = int(row.get("total") or 0)
+    confirmed = int(row.get("confirmed") or 0)
+    if total == 0:
+        return None
+
     return {
         "confirmed": confirmed,
         "total": total,

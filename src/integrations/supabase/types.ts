@@ -193,7 +193,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      pnr_confirm_stats: {
+        Args: { _class_code: string; _quota?: string; _train_number: string }
+        Returns: {
+          confirmed: number
+          total: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

@@ -81,6 +81,13 @@ function Home() {
             Smart Ticket AI analyzes historical confirmation rates, availability across classes,
             and nearby stations to suggest your best journey plan.
           </p>
+          <Link
+            to="/chat"
+            className="gradient-primary mt-6 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-elegant transition-transform hover:scale-105"
+          >
+            <MessageSquare className="h-4 w-4" />
+            Ask Mission AI
+          </Link>
         </section>
 
         <SearchForm onSearch={handleSearch} loading={loading} />

@@ -183,7 +183,7 @@ export async function buildRecommendationAdvice(
   const bestChoice = rankedTrains[0] ?? null;
 
   // 2. Nearby Station Intelligence — reuse the engine's boarding optimizer.
-  const boarding = bestScored?.intelligence.boardingSuggestion ?? null;
+  const boarding = bestScored?.intelligence?.boardingSuggestion ?? null;
   const nearbyStation: NearbyStationAdvice | null =
     boarding && bestScored
       ? {

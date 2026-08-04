@@ -18,7 +18,6 @@ export type ClassSuggestion = {
 };
 
 const COMFORT_RANK: Record<TicketClass, number> = {
-  "2S": 0,
   SL: 1,
   CC: 2,
   "3A": 3,

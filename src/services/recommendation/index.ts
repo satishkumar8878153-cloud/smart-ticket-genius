@@ -92,6 +92,15 @@ function durationMin(d: string): number {
 }
 
 export { enumerateTravelOptions };
+export { buildRecommendationAdvice } from "./advisor";
+export type {
+  RecommendationAdvice,
+  RankedTrain,
+  NearbyStationAdvice,
+  AlternateDateAdvice,
+} from "./advisor";
+export { suggestAlternateClass } from "./intelligence/classes";
+export type { ClassSuggestion } from "./intelligence/classes";
 export { WeightedLinearScorer } from "./scoring-model";
 export { DEFAULT_WEIGHTS } from "./weights";
 export { DEFAULT_DECISION_WEIGHTS } from "./decision-score";

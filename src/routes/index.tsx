@@ -115,7 +115,13 @@ function Home() {
           <div className="mt-10 space-y-6">
             <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
               <BestRecommendationCard train={result.best} />
-              <AIInsightsPanel insights={result.aiInsights} />
+              <AIInsightsPanel
+                insights={
+                  mission?.advice?.insights.length
+                    ? [...mission.advice!.insights, ...result.aiInsights].slice(0, 6)
+                    : result.aiInsights
+                }
+              />
             </div>
             <ClassMatrix trains={[result.best, ...result.otherTrains]} />
             {mission ? <MissionConfirm plans={mission.plans} /> : null}

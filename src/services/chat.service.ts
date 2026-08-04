@@ -1,5 +1,7 @@
 import { apiFetch, USE_FASTAPI, ApiError } from "./api-client";
 import type { SearchResult } from "@/lib/mock-data";
+import { buildRecommendationAdvice } from "./recommendation";
+import type { SearchResult as EngineSearchResult } from "./types";
 
 export type ChatRole = "user" | "assistant";
 
@@ -42,7 +44,24 @@ export async function sendChatMessage(
     }),
   });
 
-  return { reply: data.reply, result: data.result ?? null };
+  const result = data.result ?? null;
+  if (!result?.best) return { reply: data.reply, result };
+
+  // Chat and Search share one recommendation brain: enrich the reply with the
+  // same Recommendation Engine V2 advice (best choice, nearby station,
+  // alternate date, alternate class) instead of duplicating logic here.
+  try {
+    const advice = await buildRecommendationAdvice(result as unknown as EngineSearchResult);
+    if (advice.insights.length > 0) {
+      return {
+        reply: `${data.reply}\n\n${advice.insights.map((i) => `• ${i}`).join("\n")}`,
+        result,
+      };
+    }
+  } catch (err) {
+    console.warn("Recommendation advice unavailable for chat reply", err);
+  }
+  return { reply: data.reply, result };
 }
 
 /**

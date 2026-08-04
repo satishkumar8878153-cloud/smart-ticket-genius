@@ -7,8 +7,8 @@
 // `/recommendations`, and this service still runs unchanged on top of it.
 
 import { apiFetch, USE_FASTAPI } from "./api-client";
-import { pickMissionPlans, rankOptions } from "./recommendation";
-import type { ScoredOption } from "./recommendation";
+import { buildRecommendationAdvice, pickMissionPlans } from "./recommendation";
+import type { RecommendationAdvice, ScoredOption } from "./recommendation";
 import type {
   SearchQuery,
   SearchResult,
@@ -68,6 +68,9 @@ export type MissionConfirmResult = {
   guardian: GuardianTask[];
   // Full ranked list is exposed for future UI (e.g. "explore all options").
   ranked: ScoredOption[];
+  // Shared Recommendation Engine V2 advice: smart train ranking + nearby
+  // station / alternate date / alternate class intelligence with reasons.
+  advice: RecommendationAdvice;
 };
 
 const PLAN_META: Record<PlanKind, { title: string; tagline: string }> = {
@@ -187,16 +190,23 @@ export async function generateMissionConfirm(
   // it can return the same shape (plans built from its own ranked engine).
   if (USE_FASTAPI) {
     try {
-      return await apiFetch<MissionConfirmResult>("/mission", {
+      const remote = await apiFetch<MissionConfirmResult>("/mission", {
         method: "POST",
         body: JSON.stringify({ query, result }),
       });
+      // Older backends don't return the advice bundle — fill it in locally so
+      // Search and Chat always get the same recommendation intelligence.
+      if (remote && !remote.advice) {
+        remote.advice = await buildRecommendationAdvice(result);
+      }
+      return remote;
     } catch {
       // Fall through to the in-app engine if the aggregated endpoint isn't ready.
     }
   }
 
-  const ranked = await rankOptions(result);
+  const advice = await buildRecommendationAdvice(result);
+  const ranked = advice.ranked;
   const picks = pickMissionPlans(ranked);
 
   const A = picks?.A ?? ranked[0];
@@ -215,5 +225,6 @@ export async function generateMissionConfirm(
     tatkal: buildTatkal(result, ranked),
     guardian: buildGuardian(),
     ranked,
+    advice,
   };
 }

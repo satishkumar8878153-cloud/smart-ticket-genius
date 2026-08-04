@@ -7,8 +7,8 @@
 // `/recommendations`, and this service still runs unchanged on top of it.
 
 import { apiFetch, USE_FASTAPI } from "./api-client";
-import { pickMissionPlans, rankOptions } from "./recommendation";
-import type { ScoredOption } from "./recommendation";
+import { buildRecommendationAdvice, pickMissionPlans } from "./recommendation";
+import type { RecommendationAdvice, ScoredOption } from "./recommendation";
 import type {
   SearchQuery,
   SearchResult,
@@ -68,6 +68,9 @@ export type MissionConfirmResult = {
   guardian: GuardianTask[];
   // Full ranked list is exposed for future UI (e.g. "explore all options").
   ranked: ScoredOption[];
+  // Shared Recommendation Engine V2 advice: smart train ranking + nearby
+  // station / alternate date / alternate class intelligence with reasons.
+  advice: RecommendationAdvice;
 };
 
 const PLAN_META: Record<PlanKind, { title: string; tagline: string }> = {
@@ -196,7 +199,8 @@ export async function generateMissionConfirm(
     }
   }
 
-  const ranked = await rankOptions(result);
+  const advice = await buildRecommendationAdvice(result);
+  const ranked = advice.ranked;
   const picks = pickMissionPlans(ranked);
 
   const A = picks?.A ?? ranked[0];
@@ -215,5 +219,6 @@ export async function generateMissionConfirm(
     tatkal: buildTatkal(result, ranked),
     guardian: buildGuardian(),
     ranked,
+    advice,
   };
 }

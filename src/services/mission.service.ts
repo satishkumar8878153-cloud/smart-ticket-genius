@@ -190,10 +190,16 @@ export async function generateMissionConfirm(
   // it can return the same shape (plans built from its own ranked engine).
   if (USE_FASTAPI) {
     try {
-      return await apiFetch<MissionConfirmResult>("/mission", {
+      const remote = await apiFetch<MissionConfirmResult>("/mission", {
         method: "POST",
         body: JSON.stringify({ query, result }),
       });
+      // Older backends don't return the advice bundle — fill it in locally so
+      // Search and Chat always get the same recommendation intelligence.
+      if (remote && !remote.advice) {
+        remote.advice = await buildRecommendationAdvice(result);
+      }
+      return remote;
     } catch {
       // Fall through to the in-app engine if the aggregated endpoint isn't ready.
     }

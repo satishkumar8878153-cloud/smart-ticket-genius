@@ -117,8 +117,8 @@ function Home() {
               <BestRecommendationCard train={result.best} />
               <AIInsightsPanel
                 insights={
-                  mission?.advice.insights.length
-                    ? [...mission.advice.insights, ...result.aiInsights].slice(0, 6)
+                  mission?.advice?.insights.length
+                    ? [...mission.advice!.insights, ...result.aiInsights].slice(0, 6)
                     : result.aiInsights
                 }
               />

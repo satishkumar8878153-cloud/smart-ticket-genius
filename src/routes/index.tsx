@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertCircle, Loader2, MessageSquare, Sparkles, Train } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
 import { AlternateDates } from "@/components/smart-ticket/AlternateDates";
 import { AlternateStations } from "@/components/smart-ticket/AlternateStations";
@@ -8,24 +8,39 @@ import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommenda
 import { ClassMatrix } from "@/components/smart-ticket/ClassMatrix";
 import { SearchForm } from "@/components/smart-ticket/SearchForm";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
-import type { SearchQuery, SearchResult } from "@/lib/mock-data";
+import type { SearchQuery, SearchResult, TicketClass } from "@/lib/mock-data";
 import { searchTrains } from "@/services/search.service";
 import { generateMissionConfirm, type MissionConfirmResult } from "@/services/mission.service";
 import { MissionConfirm } from "@/components/smart-ticket/MissionConfirm";
 import { TatkalStrategy } from "@/components/smart-ticket/TatkalStrategy";
 import { JourneyGuardian } from "@/components/smart-ticket/JourneyGuardian";
 
+type HomeSearch = {
+  from?: string;
+  to?: string;
+  date?: string;
+  cls?: TicketClass;
+};
+
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>): HomeSearch => ({
+    from: typeof search.from === "string" ? search.from : undefined,
+    to: typeof search.to === "string" ? search.to : undefined,
+    date: typeof search.date === "string" ? search.date : undefined,
+    cls: typeof search.cls === "string" ? (search.cls as TicketClass) : undefined,
+  }),
   component: Home,
 });
 
 function Home() {
+  const { from, to, date, cls } = Route.useSearch();
   const [result, setResult] = useState<SearchResult | null>(null);
   const [mission, setMission] = useState<MissionConfirmResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoRan = useRef<string | null>(null);
 
-  async function handleSearch(query: SearchQuery) {
+  const handleSearch = useCallback(async function handleSearch(query: SearchQuery) {
     setLoading(true);
     setError(null);
     try {
@@ -41,7 +56,26 @@ function Home() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  const prefill =
+    from && to
+      ? {
+          source: from,
+          destination: to,
+          date: date ?? new Date().toISOString().slice(0, 10),
+          travelClass: (cls ?? "3A") as TicketClass,
+        }
+      : undefined;
+
+  useEffect(() => {
+    if (!prefill) return;
+    const key = `${prefill.source}|${prefill.destination}|${prefill.date}|${prefill.travelClass}`;
+    if (autoRan.current === key) return;
+    autoRan.current = key;
+    void handleSearch(prefill);
+  }, [prefill?.source, prefill?.destination, prefill?.date, prefill?.travelClass, handleSearch]);
+
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -90,7 +124,7 @@ function Home() {
           </Link>
         </section>
 
-        <SearchForm onSearch={handleSearch} loading={loading} />
+        <SearchForm onSearch={handleSearch} loading={loading} initialQuery={prefill} />
 
         {error && (
           <div className="mt-6 flex items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">

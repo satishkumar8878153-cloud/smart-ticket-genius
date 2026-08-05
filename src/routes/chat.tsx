@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertCircle, ArrowLeft, Bot, RefreshCw, Send, Train, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
-import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommendationCard";
+import { ChatRecommendationCards } from "@/components/smart-ticket/ChatRecommendationCards";
 import {
   SUGGESTED_PROMPTS,
   sendChatMessage,
@@ -57,10 +57,10 @@ function ChatPage() {
     setError(null);
     setLastAttempt(text);
     try {
-      const { reply, result } = await sendChatMessage(text, history);
+      const { reply, result, recommendation } = await sendChatMessage(text, history);
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: "assistant", content: reply, result, createdAt: Date.now() },
+        { id: uid(), role: "assistant", content: reply, result, recommendation, createdAt: Date.now() },
       ]);
       setLastAttempt(null);
     } catch (err) {
@@ -168,10 +168,10 @@ function ChatPage() {
                   className={
                     m.role === "user"
                       ? "max-w-[80%] rounded-3xl rounded-tr-md bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-elegant"
-                      : "max-w-[85%] text-sm leading-relaxed text-foreground/90"
+                      : "max-w-[85%] whitespace-pre-line text-sm leading-relaxed text-foreground/90"
                   }
                 >
-                  {m.content}
+                  {m.role === "assistant" ? m.content.replace(/\*\*/g, "") : m.content}
                 </div>
                 {m.role === "user" && (
                   <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-2xl border border-border/60 bg-card/70 text-muted-foreground">
@@ -179,9 +179,9 @@ function ChatPage() {
                   </div>
                 )}
               </div>
-              {m.result?.best ? (
+              {m.recommendation?.best ? (
                 <div className="pl-11">
-                  <BestRecommendationCard train={m.result.best} />
+                  <ChatRecommendationCards data={m.recommendation} />
                 </div>
               ) : null}
             </div>

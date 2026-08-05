@@ -124,7 +124,7 @@ function Home() {
           </Link>
         </section>
 
-        <SearchForm onSearch={handleSearch} loading={loading} />
+        <SearchForm onSearch={handleSearch} loading={loading} initialQuery={prefill} />
 
         {error && (
           <div className="mt-6 flex items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">

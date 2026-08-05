@@ -17,15 +17,35 @@ import type { Station } from "@/services/types";
 export function SearchForm({
   onSearch,
   loading = false,
+  initialQuery,
 }: {
   onSearch: (q: SearchQuery) => void;
   loading?: boolean;
+  initialQuery?: Partial<SearchQuery>;
 }) {
-  const [source, setSource] = useState("New Delhi");
-  const [destination, setDestination] = useState("Mumbai Central");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [travelClass, setTravelClass] = useState<TicketClass>("3A");
+  const [source, setSource] = useState(initialQuery?.source ?? "New Delhi");
+  const [destination, setDestination] = useState(initialQuery?.destination ?? "Mumbai Central");
+  const [date, setDate] = useState(
+    () => initialQuery?.date ?? new Date().toISOString().slice(0, 10),
+  );
+  const [travelClass, setTravelClass] = useState<TicketClass>(
+    initialQuery?.travelClass ?? "3A",
+  );
   const [stations, setStations] = useState<Station[]>([]);
+
+  useEffect(() => {
+    if (!initialQuery) return;
+    if (initialQuery.source) setSource(initialQuery.source);
+    if (initialQuery.destination) setDestination(initialQuery.destination);
+    if (initialQuery.date) setDate(initialQuery.date);
+    if (initialQuery.travelClass) setTravelClass(initialQuery.travelClass);
+  }, [
+    initialQuery?.source,
+    initialQuery?.destination,
+    initialQuery?.date,
+    initialQuery?.travelClass,
+  ]);
+
 
   useEffect(() => {
     let cancelled = false;

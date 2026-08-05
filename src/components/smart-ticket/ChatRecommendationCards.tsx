@@ -86,7 +86,21 @@ export function ChatRecommendationCards({ data }: { data: ChatRecommendation }) 
               <li key={r}>• {r}</li>
             ))}
           </ul>
+          <Link
+            to="/"
+            search={{
+              from: data.query.source,
+              to: data.query.destination,
+              date: data.query.date,
+              cls: data.query.travelClass,
+            }}
+            className="gradient-primary mt-4 inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold text-primary-foreground shadow-elegant transition-transform hover:scale-105"
+          >
+            <Search className="h-3.5 w-3.5" />
+            Use this in search
+          </Link>
         </Shell>
+
       </div>
 
       {data.alternateTrain && (

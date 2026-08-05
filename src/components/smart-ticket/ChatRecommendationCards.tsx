@@ -1,14 +1,17 @@
+import { Link } from "@tanstack/react-router";
 import {
   ArrowRightLeft,
   Calendar,
   Clock,
   IndianRupee,
   MapPin,
+  Search,
   Sparkles,
   Train,
 } from "lucide-react";
 import type { ChatRecommendation } from "@/services/chat.service";
 import type { RankedTrain } from "@/services/recommendation/advisor";
+
 
 function Shell({
   icon,

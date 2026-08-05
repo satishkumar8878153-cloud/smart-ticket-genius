@@ -57,10 +57,10 @@ function ChatPage() {
     setError(null);
     setLastAttempt(text);
     try {
-      const { reply, result } = await sendChatMessage(text, history);
+      const { reply, result, recommendation } = await sendChatMessage(text, history);
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: "assistant", content: reply, result, createdAt: Date.now() },
+        { id: uid(), role: "assistant", content: reply, result, recommendation, createdAt: Date.now() },
       ]);
       setLastAttempt(null);
     } catch (err) {

@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertCircle, ArrowLeft, Bot, RefreshCw, Send, Train, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
-import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommendationCard";
+import { ChatRecommendationCards } from "@/components/smart-ticket/ChatRecommendationCards";
 import {
   SUGGESTED_PROMPTS,
   sendChatMessage,

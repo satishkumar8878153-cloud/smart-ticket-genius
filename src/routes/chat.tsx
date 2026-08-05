@@ -168,10 +168,10 @@ function ChatPage() {
                   className={
                     m.role === "user"
                       ? "max-w-[80%] rounded-3xl rounded-tr-md bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-elegant"
-                      : "max-w-[85%] text-sm leading-relaxed text-foreground/90"
+                      : "max-w-[85%] whitespace-pre-line text-sm leading-relaxed text-foreground/90"
                   }
                 >
-                  {m.content}
+                  {m.role === "assistant" ? m.content.replace(/\*\*/g, "") : m.content}
                 </div>
                 {m.role === "user" && (
                   <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-2xl border border-border/60 bg-card/70 text-muted-foreground">

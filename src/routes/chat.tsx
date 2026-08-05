@@ -179,9 +179,9 @@ function ChatPage() {
                   </div>
                 )}
               </div>
-              {m.result?.best ? (
+              {m.recommendation?.best ? (
                 <div className="pl-11">
-                  <BestRecommendationCard train={m.result.best} />
+                  <ChatRecommendationCards data={m.recommendation} />
                 </div>
               ) : null}
             </div>

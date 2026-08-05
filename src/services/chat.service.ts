@@ -73,9 +73,18 @@ export function updateSlots(prev: MissionSlots, message: string): MissionSlots {
   // A bare class reply ("3A") is an answer to a follow-up question.
   const bareClass = CLASS_CODES.find((c) => text === c) ?? null;
 
+  // A single city reply answers whichever leg is still missing: when the
+  // destination is already known, the lone city is the origin.
+  let source = parsed.source;
+  let destination = parsed.destination;
+  if (!source && destination && !prev.source && prev.destination) {
+    source = destination;
+    destination = null;
+  }
+
   return {
-    source: parsed.source ?? prev.source,
-    destination: parsed.destination ?? prev.destination,
+    source: source ?? prev.source,
+    destination: destination ?? prev.destination,
     date: parsed.date ?? prev.date,
     travelClass: (parsed.preferredClass as TicketClass | null) ?? bareClass ?? prev.travelClass,
     quota: parsed.quota ?? prev.quota,

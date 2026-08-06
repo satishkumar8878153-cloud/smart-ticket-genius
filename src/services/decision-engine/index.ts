@@ -43,7 +43,11 @@ export type DecisionEngineResult = {
 function violatesPreferences(
   s: ScoredOption,
   prefs: UserPreferences,
+  requestedDate?: string,
 ): string | null {
+  if (prefs.flexibleDates === false && requestedDate && s.option.journeyDate !== requestedDate) {
+    return `Departs on ${s.option.journeyDate} — you asked to keep the original date.`;
+  }
   if (
     typeof prefs.maxExtraTravelMinutes === "number" &&
     s.option.extraTravelMinutes > prefs.maxExtraTravelMinutes
@@ -63,9 +67,6 @@ function violatesPreferences(
     if (!prefs.preferredClasses.includes(s.option.travelClass)) {
       return `Class ${s.option.travelClass} is outside your preferred classes.`;
     }
-  }
-  if (prefs.flexibleDates === false && s.option.journeyDate !== s.option.journeyDate) {
-    return "Date shift not allowed.";
   }
   return null;
 }
@@ -118,7 +119,7 @@ export async function runDecisionEngine(
   const excluded: DecisionEngineResult["excluded"] = [];
   const allowed: ScoredOption[] = [];
   for (const s of advice.ranked) {
-    const reason = violatesPreferences(s, preferences);
+    const reason = violatesPreferences(s, preferences, result.query.date);
     if (reason) excluded.push({ optionId: s.option.id, reason });
     else allowed.push(s);
   }

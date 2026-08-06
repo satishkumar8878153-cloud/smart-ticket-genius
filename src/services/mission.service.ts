@@ -8,6 +8,7 @@
 
 import { apiFetch, USE_FASTAPI } from "./api-client";
 import { buildRecommendationAdvice, pickMissionPlans } from "./recommendation";
+import { runDecisionEngine } from "./decision-engine";
 import type { RecommendationAdvice, ScoredOption } from "./recommendation";
 import type {
   SearchQuery,

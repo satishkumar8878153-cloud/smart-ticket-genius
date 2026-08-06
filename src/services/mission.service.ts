@@ -8,6 +8,7 @@
 
 import { apiFetch, USE_FASTAPI } from "./api-client";
 import { buildRecommendationAdvice, pickMissionPlans } from "./recommendation";
+import { runDecisionEngine } from "./decision-engine";
 import type { RecommendationAdvice, ScoredOption } from "./recommendation";
 import type {
   SearchQuery,
@@ -205,8 +206,11 @@ export async function generateMissionConfirm(
     }
   }
 
-  const advice = await buildRecommendationAdvice(result);
-  const ranked = advice.ranked;
+  // Shared AI Decision Engine — the same brain Search, Mission AI Chat and
+  // Confirm AI use, so ranking is never duplicated per feature.
+  const engine = await runDecisionEngine({ result });
+  const advice = engine.advice;
+  const ranked = engine.ranked;
   const picks = pickMissionPlans(ranked);
 
   const A = picks?.A ?? ranked[0];

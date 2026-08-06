@@ -82,7 +82,7 @@ function tokenMatches(code: string, tokens: Set<string>) {
   return false;
 }
 
-async function fetchTrainsForRoute(source: string, destination: string): Promise<TrainRow[]> {
+export async function fetchTrainsForRoute(source: string, destination: string): Promise<TrainRow[]> {
   const [{ data, error }, stationRes] = await Promise.all([
     supabase
       .from("trains")

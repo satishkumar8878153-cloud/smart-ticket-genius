@@ -51,7 +51,7 @@ export const supabasePnrProvider: PnrProvider = {
       const { data, error } = await supabase.rpc("pnr_confirm_stats", {
         _train_number: input.trainNumber,
         _class_code: String(input.classCode),
-        _quota: input.quota ?? null,
+        _quota: input.quota ?? undefined,
       });
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;

@@ -205,8 +205,11 @@ export async function generateMissionConfirm(
     }
   }
 
-  const advice = await buildRecommendationAdvice(result);
-  const ranked = advice.ranked;
+  // Shared AI Decision Engine — the same brain Search, Mission AI Chat and
+  // Confirm AI use, so ranking is never duplicated per feature.
+  const engine = await runDecisionEngine({ result });
+  const advice = engine.advice;
+  const ranked = engine.ranked;
   const picks = pickMissionPlans(ranked);
 
   const A = picks?.A ?? ranked[0];

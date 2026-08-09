@@ -55,7 +55,7 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
             )
         )
     ]
-    return matches if matches else rows[:5]
+    return matches
 
 
 def fetch_stations(query: str | None = None) -> list[dict]:

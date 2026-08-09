@@ -1,21 +1,8 @@
 import os
 from supabase import create_client, Client
 
-# Accept the common variable names so the deployment works whether the host
-# provides SUPABASE_KEY, SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY.
-SUPABASE_URL = (
-    os.environ.get("SUPABASE_URL")
-    or os.environ.get("VITE_SUPABASE_URL")
-    or ""
-).strip()
-SUPABASE_KEY = (
-    os.environ.get("SUPABASE_KEY")
-    or os.environ.get("SUPABASE_ANON_KEY")
-    or os.environ.get("SUPABASE_PUBLISHABLE_KEY")
-    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    or os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY")
-    or ""
-).strip()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 _client: Client | None = None
 
@@ -31,112 +18,107 @@ def get_client() -> Client:
     return _client
 
 
-def fetch_stations() -> list[dict]:
-    """All stations, popular ones first. Returns [] when the DB is unreachable."""
-    try:
-        client = get_client()
-        resp = (
-            client.table("stations")
-            .select("code, name, city, is_popular")
-            .order("is_popular", desc=True)
-            .order("name", desc=False)
-            .execute()
-        )
-        return resp.data or []
-    except Exception as exc:  # pragma: no cover - network/config failures
-        print(f"[db] fetch_stations failed: {exc}")
-        return []
-
-
-def _station_tokens(value: str, stations: list[dict]) -> set[str]:
-    """Return lowercase tokens (code, name, city) that identify a station."""
-    v = value.strip().lower()
-    tokens = {v}
-    for s in stations:
-        fields = [
-            str(s.get("code") or "").lower(),
-            str(s.get("name") or "").lower(),
-            str(s.get("city") or "").lower(),
-        ]
-        if v and any(f and (v == f or v in f or f in v) for f in fields):
-            tokens.update(f for f in fields if f)
-    return {t for t in tokens if t}
-
-
 def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
-    """Trains matching the route. Never raises — returns [] on failure."""
-    try:
-        client = get_client()
-        resp = (
-            client.table("trains")
-            .select(
-                "train_number, train_name, source_code, destination_code, "
-                "departure_time, arrival_time, duration"
-            )
-            .execute()
+    """Bidirectional substring match so full station names (e.g. 'New Delhi')
+    match against short codes (e.g. 'NDLS') stored in the trains table."""
+    client = get_client()
+    resp = (
+        client.table("trains")
+        .select(
+            "train_number, train_name, source_code, destination_code, "
+            "departure_time, arrival_time, duration"
         )
-        rows = resp.data or []
-    except Exception as exc:  # pragma: no cover
-        print(f"[db] fetch_trains_for_route failed: {exc}")
-        return []
+        .execute()
+    )
+    rows = resp.data or []
 
-    stations = fetch_stations()
-    src_tokens = _station_tokens(source, stations)
-    dst_tokens = _station_tokens(destination, stations)
+    src = source.strip().lower()
+    dst = destination.strip().lower()
 
-    def matches(code: str, tokens: set[str]) -> bool:
-        c = str(code or "").lower()
-        return any(t == c or t in c or c in t for t in tokens)
-
-    exact = [
+    matches = [
         r
         for r in rows
-        if matches(r.get("source_code", ""), src_tokens)
-        and matches(r.get("destination_code", ""), dst_tokens)
+        if (
+            r["source_code"]
+            and (
+                r["source_code"].lower() == src
+                or src in r["source_code"].lower()
+                or r["source_code"].lower() in src
+            )
+        )
+        and (
+            r["destination_code"]
+            and (
+                r["destination_code"].lower() == dst
+                or dst in r["destination_code"].lower()
+                or r["destination_code"].lower() in dst
+            )
+        )
     ]
-    if exact:
-        return exact
+    return matches if matches else rows[:5]
 
-    # Partial: at least the origin matches.
-    partial = [r for r in rows if matches(r.get("source_code", ""), src_tokens)]
-    if partial:
-        return partial
 
-    # Unknown / unserved route — let the caller return a clean 404.
-    return []
+def fetch_stations(query: str | None = None) -> list[dict]:
+    """No separate 'stations' table exists yet — derive the station list
+    directly from the trains table's source/destination codes, since that's
+    the only place station data currently lives.
+    """
+    client = get_client()
+    resp = (
+        client.table("trains")
+        .select("source_code, destination_code")
+        .execute()
+    )
+    rows = resp.data or []
 
+    seen: dict[str, dict] = {}
+    for r in rows:
+        for code in (r.get("source_code"), r.get("destination_code")):
+            if not code:
+                continue
+            key = code.strip().lower()
+            if key not in seen:
+                seen[key] = {"code": code.strip(), "name": code.strip(), "city": None}
+
+    stations = list(seen.values())
+
+    if query:
+        q = query.strip().lower()
+        stations = [
+            s
+            for s in stations
+            if q in s["code"].lower() or q in (s["name"] or "").lower()
+        ]
+
+    return stations
 
 
 def fetch_pnr_stats(train_number: str, class_code: str, quota: str | None = None) -> dict | None:
     """
     Looks up real, verified PNR history for this exact train + class
-    (optionally + quota). Returns None if we have no real data yet (or the
-    table does not exist), so the caller falls back to the heuristic model.
+    (optionally + quota). Returns None if we have no real data yet, so the
+    caller can fall back to the heuristic model.
+
+    Returns: {"confirmed": int, "total": int, "confirm_rate": float}
     """
-    try:
-        client = get_client()
-        resp = client.rpc(
-            "pnr_confirm_stats",
-            {
-                "_train_number": train_number,
-                "_class_code": class_code,
-                "_quota": quota,
-            },
-        ).execute()
-        rows = resp.data or []
-    except Exception as exc:  # function missing, network — all non-fatal
-        print(f"[db] fetch_pnr_stats unavailable: {exc}")
+    client = get_client()
+    query = (
+        client.table("pnr_history")
+        .select("confirmed")
+        .eq("train_number", train_number)
+        .eq("class_code", class_code)
+        .eq("verified", True)
+    )
+    if quota:
+        query = query.eq("quota", quota)
+
+    resp = query.execute()
+    rows = resp.data or []
+    if not rows:
         return None
 
-    row = rows[0] if isinstance(rows, list) and rows else (rows if isinstance(rows, dict) else None)
-    if not row:
-        return None
-
-    total = int(row.get("total") or 0)
-    confirmed = int(row.get("confirmed") or 0)
-    if total == 0:
-        return None
-
+    total = len(rows)
+    confirmed = sum(1 for r in rows if r["confirmed"])
     return {
         "confirmed": confirmed,
         "total": total,

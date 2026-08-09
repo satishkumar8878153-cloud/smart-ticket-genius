@@ -19,8 +19,20 @@ def get_client() -> Client:
 
 
 def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
-    """Bidirectional substring match so full station names (e.g. 'New Delhi')
-    match against short codes (e.g. 'NDLS') stored in the trains table."""
+    """Try the live IRCTC provider first (real data). If it fails or finds
+    nothing, fall back to the Supabase demo dataset — never fabricate an
+    unrelated match."""
+    from irctc_provider import fetch_trains_between
+    from datetime import date as _date
+
+    try:
+        live = fetch_trains_between(source, destination, _date.today().isoformat())
+        if live:
+            return live
+    except Exception:
+        pass
+
+    # --- Demo dataset fallback (Supabase) ---
     client = get_client()
     resp = (
         client.table("trains")
@@ -56,8 +68,6 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
         )
     ]
     return matches
-
-
 def fetch_stations(query: str | None = None) -> list[dict]:
     """No separate 'stations' table exists yet — derive the station list
     directly from the trains table's source/destination codes, since that's

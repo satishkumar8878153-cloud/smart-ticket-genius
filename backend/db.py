@@ -7,6 +7,24 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 _client: Client | None = None
 
+# Common station name -> code aliases, so free-text searches like "Patna"
+# match codes like "PNBE" stored in the demo trains table. Add more entries
+# here as new stations get added to the trains table.
+STATION_ALIASES: dict[str, str] = {
+    "patna": "pnbe",
+    "patna junction": "pnbe",
+    "new delhi": "ndls",
+    "delhi": "ndls",
+    "mumbai": "mmct",
+    "mumbai central": "mmct",
+    "mumbai csmt": "csmt",
+}
+
+
+def _normalize_station(value: str) -> str:
+    v = value.strip().lower()
+    return STATION_ALIASES.get(v, v)
+
 
 def get_client() -> Client:
     global _client
@@ -22,7 +40,8 @@ def get_client() -> Client:
 def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
     """Try the live IRCTC provider first (real data). If it fails or finds
     nothing, fall back to the Supabase demo dataset with bidirectional
-    substring matching. Never fabricates an unrelated match."""
+    substring matching (using station aliases). Never fabricates an
+    unrelated match."""
     try:
         from irctc_provider import fetch_trains_between
 
@@ -44,8 +63,8 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
     )
     rows = resp.data or []
 
-    src = source.strip().lower()
-    dst = destination.strip().lower()
+    src = _normalize_station(source)
+    dst = _normalize_station(destination)
 
     matches = [
         r

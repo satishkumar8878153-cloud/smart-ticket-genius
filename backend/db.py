@@ -1,4 +1,5 @@
 import os
+from datetime import date as _date
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -20,12 +21,11 @@ def get_client() -> Client:
 
 def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
     """Try the live IRCTC provider first (real data). If it fails or finds
-    nothing, fall back to the Supabase demo dataset — never fabricate an
-    unrelated match."""
-    from irctc_provider import fetch_trains_between
-    from datetime import date as _date
-
+    nothing, fall back to the Supabase demo dataset with bidirectional
+    substring matching. Never fabricates an unrelated match."""
     try:
+        from irctc_provider import fetch_trains_between
+
         live = fetch_trains_between(source, destination, _date.today().isoformat())
         if live:
             return live
@@ -68,6 +68,8 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
         )
     ]
     return matches
+
+
 def fetch_stations(query: str | None = None) -> list[dict]:
     """No separate 'stations' table exists yet — derive the station list
     directly from the trains table's source/destination codes, since that's

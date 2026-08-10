@@ -21,12 +21,9 @@ def _get(path: str, params: dict) -> dict:
 
 
 def resolve_station_code(name_or_code: str) -> str | None:
-    """Convert a free-text station name (e.g. 'New Delhi') into its
-    IRCTC station code (e.g. 'NDLS'). Returns None if nothing matches."""
     query = name_or_code.strip()
     if not query:
         return None
-    # If it already looks like a 2-5 letter code, try it as-is first.
     try:
         data = _get("/searchStation", {"query": query})
     except Exception:
@@ -35,7 +32,6 @@ def resolve_station_code(name_or_code: str) -> str | None:
     rows = data.get("data") or []
     if not rows:
         return None
-    # Prefer an exact name match, else take the first result.
     for r in rows:
         if str(r.get("station_name", "")).strip().lower() == query.lower():
             return r.get("station_code")
@@ -43,11 +39,6 @@ def resolve_station_code(name_or_code: str) -> str | None:
 
 
 def fetch_trains_between(source: str, destination: str, date_iso: str) -> list[dict]:
-    """Fetch real trains between two stations from the IRCTC (RapidAPI) provider.
-    `source`/`destination` can be full names or codes — both get resolved to codes.
-    Returns a list shaped like the existing TrainRow dicts used by main.py.
-    Returns [] on any failure or if nothing is found (never fabricates data).
-    """
     src_code = resolve_station_code(source)
     dst_code = resolve_station_code(destination)
     if not src_code or not dst_code:
@@ -80,53 +71,3 @@ def fetch_trains_between(source: str, destination: str, date_iso: str) -> list[d
             }
         )
     return trains
-  def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
-    """Try the live IRCTC provider first (real data). If it fails or finds
-    nothing, fall back to the Supabase demo dataset — never fabricate an
-    unrelated match."""
-    from irctc_provider import fetch_trains_between
-    from datetime import date as _date
-
-    try:
-        live = fetch_trains_between(source, destination, _date.today().isoformat())
-        if live:
-            return live
-    except Exception:
-        pass
-
-    # --- Demo dataset fallback (Supabase) ---
-    client = get_client()
-    resp = (
-        client.table("trains")
-        .select(
-            "train_number, train_name, source_code, destination_code, "
-            "departure_time, arrival_time, duration"
-        )
-        .execute()
-    )
-    rows = resp.data or []
-
-    src = source.strip().lower()
-    dst = destination.strip().lower()
-
-    matches = [
-        r
-        for r in rows
-        if (
-            r["source_code"]
-            and (
-                r["source_code"].lower() == src
-                or src in r["source_code"].lower()
-                or r["source_code"].lower() in src
-            )
-        )
-        and (
-            r["destination_code"]
-            and (
-                r["destination_code"].lower() == dst
-                or dst in r["destination_code"].lower()
-                or r["destination_code"].lower() in dst
-            )
-        )
-    ]
-    return matches

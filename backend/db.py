@@ -7,12 +7,10 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 _client: Client | None = None
 
-# Common station name -> code aliases, so free-text searches like "Patna"
-# match codes like "PNBE" stored in the demo trains table. Add more entries
-# here as new stations get added to the trains table.
 STATION_ALIASES: dict[str, str] = {
     "patna": "pnbe",
     "patna junction": "pnbe",
+    "paharpur": "prp",
     "new delhi": "ndls",
     "delhi": "ndls",
     "mumbai": "mmct",
@@ -51,7 +49,6 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
     except Exception:
         pass
 
-    # --- Demo dataset fallback (Supabase) ---
     client = get_client()
     resp = (
         client.table("trains")
@@ -90,48 +87,26 @@ def fetch_trains_for_route(source: str, destination: str) -> list[dict]:
 
 
 def fetch_stations(query: str | None = None) -> list[dict]:
-    """No separate 'stations' table exists yet — derive the station list
-    directly from the trains table's source/destination codes, since that's
-    the only place station data currently lives.
-    """
+    """Real stations table lookup, with an autocomplete-style match on
+    code, name, or city."""
     client = get_client()
-    resp = (
-        client.table("trains")
-        .select("source_code, destination_code")
-        .execute()
-    )
+    resp = client.table("stations").select("code, name, city").execute()
     rows = resp.data or []
-
-    seen: dict[str, dict] = {}
-    for r in rows:
-        for code in (r.get("source_code"), r.get("destination_code")):
-            if not code:
-                continue
-            key = code.strip().lower()
-            if key not in seen:
-                seen[key] = {"code": code.strip(), "name": code.strip(), "city": None}
-
-    stations = list(seen.values())
 
     if query:
         q = query.strip().lower()
-        stations = [
-            s
-            for s in stations
-            if q in s["code"].lower() or q in (s["name"] or "").lower()
+        rows = [
+            r
+            for r in rows
+            if q in (r.get("code") or "").lower()
+            or q in (r.get("name") or "").lower()
+            or q in (r.get("city") or "").lower()
         ]
 
-    return stations
+    return rows
 
 
 def fetch_pnr_stats(train_number: str, class_code: str, quota: str | None = None) -> dict | None:
-    """
-    Looks up real, verified PNR history for this exact train + class
-    (optionally + quota). Returns None if we have no real data yet, so the
-    caller can fall back to the heuristic model.
-
-    Returns: {"confirmed": int, "total": int, "confirm_rate": float}
-    """
     client = get_client()
     query = (
         client.table("pnr_history")

@@ -319,18 +319,3 @@ def chat(payload: dict):
             f"~{result.best.confirmProbability}% confirmation chance."
         )
     return {"reply": reply, "result": result.model_dump()}
-@app.get("/debug-irctc")
-def debug_irctc(q: str = "Bengaluru"):
-    import httpx
-    from irctc_provider import RAPIDAPI_KEY, _HEADERS, BASE_URL
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(f"{BASE_URL}/searchStation", headers=_HEADERS, params={"query": q})
-            return {
-                "status_code": resp.status_code,
-                "key_length": len(RAPIDAPI_KEY),
-                "key_preview": RAPIDAPI_KEY[:8] + "...",
-                "response_body": resp.text[:500],
-            }
-    except Exception as e:
-        return {"error_type": type(e).__name__, "error_message": str(e)}

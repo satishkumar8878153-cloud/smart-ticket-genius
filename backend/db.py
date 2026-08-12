@@ -16,8 +16,13 @@ STATION_ALIASES: dict[str, str] = {
     "mumbai": "mmct",
     "mumbai central": "mmct",
     "mumbai csmt": "csmt",
+    "siliguri": "sguj",
+    "siliguri junction": "sguj",
+    "new jalpaiguri": "njp",
+    "kamakhya": "kyq",
+    "kamakhya junction": "kyq",
+    "guwahati": "kyq",
 }
-
 
 def _normalize_station(value: str) -> str:
     v = value.strip().lower()

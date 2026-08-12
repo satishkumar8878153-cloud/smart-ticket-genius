@@ -38,7 +38,20 @@ def resolve_station_code(name_or_code: str) -> str | None:
     if not query:
         return None
     try:
-        data = _get("/searchStation", {"query": query})
+        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+    resp = client.get(
+        STATION_SEARCH_URL,
+        headers=_HEADERS,
+        params={"query": query},
+    )
+    print(
+        "RAPIDAPI DEBUG:",
+        "status=", resp.status_code,
+        "url=", str(resp.url),
+        "body=", resp.text[:1000],
+    )
+    resp.raise_for_status()
+    data = resp.json()
     except Exception:
         return None
 

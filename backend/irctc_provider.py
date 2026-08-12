@@ -84,3 +84,4 @@ def fetch_trains_between(source: str, destination: str, date_iso: str) -> list[d
             }
         )
     return trains
+STATION_SEARCH_URL = "https://irctc1.p.rapidapi.com/api/v1/searchStation"    

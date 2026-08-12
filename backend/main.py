@@ -71,6 +71,61 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/stations")
 def stations(q: str | None = None, limit: int = 100) -> list[dict]:
+    """Search live railway stations, with Supabase fallback."""
+    limit = max(1, min(limit, 100))
+
+    # When user searches, use live RapidAPI station search first.
+    if q and q.strip():
+        live_rows = search_stations(q.strip(), limit=limit)
+
+        if live_rows:
+            log.info(
+                "stations | live q=%r matched=%d",
+                q,
+                len(live_rows),
+            )
+            return [
+                {
+                    "code": r.get("code"),
+                    "name": r.get("name"),
+                    "city": r.get("city"),
+                    "is_popular": bool(r.get("is_popular", False)),
+                }
+                for r in live_rows[:limit]
+            ]
+
+    # Fallback: existing Supabase station list.
+    try:
+        rows = fetch_stations()
+    except Exception as exc:
+        log.exception("fetch_stations failed: %s", exc)
+        rows = []
+
+    if q:
+        needle = q.strip().lower()
+        rows = [
+            r
+            for r in rows
+            if needle in str(r.get("code") or "").lower()
+            or needle in str(r.get("name") or "").lower()
+            or needle in str(r.get("city") or "").lower()
+        ]
+
+    log.info(
+        "stations | fallback q=%r matched=%d",
+        q,
+        len(rows),
+    )
+
+    return [
+        {
+            "code": r.get("code"),
+            "name": r.get("name"),
+            "city": r.get("city"),
+            "is_popular": bool(r.get("is_popular", False)),
+        }
+        for r in rows[:limit]
+    ]
     """All stations, popular first. Optional `q` filters by code, name or city."""
     try:
         rows = fetch_stations()

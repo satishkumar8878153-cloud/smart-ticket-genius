@@ -283,7 +283,10 @@ def search(
         train_rows = fetch_trains_for_route(
             query.source,
             query.destination,
+            query.date,
+         
         )
+        
 
     except Exception as exc:
         log.exception(

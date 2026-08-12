@@ -33,9 +33,9 @@ def resolve_station_code(name_or_code: str) -> str | None:
     if not rows:
         return None
     for r in rows:
-        if str(r.get("station_name", "")).strip().lower() == query.lower():
-            return r.get("station_code")
-    return rows[0].get("station_code")
+        if str(r.get("eng_name", "")).strip().lower() == query.lower():
+            return r.get("code")
+    return rows[0].get("code")
 
 
 def fetch_trains_between(source: str, destination: str, date_iso: str) -> list[dict]:

@@ -14,8 +14,21 @@ _HEADERS = {
 def _get(path: str, params: dict) -> dict:
     if not RAPIDAPI_KEY:
         raise RuntimeError("RAPIDAPI_KEY is not set as an environment variable.")
-    with httpx.Client(timeout=10.0) as client:
-        resp = client.get(f"{BASE_URL}{path}", headers=_HEADERS, params=params)
+
+    with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+        resp = client.get(
+            f"{BASE_URL}{path}",
+            headers=_HEADERS,
+            params=params,
+        )
+
+        print(
+            "RAPIDAPI DEBUG:",
+            "status=", resp.status_code,
+            "url=", str(resp.url),
+            "body=", resp.text[:1000],
+        )
+
         resp.raise_for_status()
         return resp.json()
 

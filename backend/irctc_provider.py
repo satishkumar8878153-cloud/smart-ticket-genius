@@ -8,8 +8,8 @@ BASE_URL = "https://irctc1.p.rapidapi.com/api/v3"
 _HEADERS = {
     "x-rapidapi-host": RAPIDAPI_HOST,
     "x-rapidapi-key": RAPIDAPI_KEY,
+    "Content-Type": "application/json",
 }
-
 
 def _get(path: str, params: dict) -> dict:
     if not RAPIDAPI_KEY:

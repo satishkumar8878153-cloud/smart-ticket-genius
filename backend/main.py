@@ -16,7 +16,7 @@ from models import (
 )
 from prediction import heuristic_confirmation_score, recommendation_score
 from db import fetch_trains_for_route, fetch_pnr_stats, fetch_stations
-
+from irctc_provider import search_stations
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",

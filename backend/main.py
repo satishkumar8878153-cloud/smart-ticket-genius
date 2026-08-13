@@ -1,7 +1,9 @@
+import os
 import logging
 import traceback
 from datetime import date, timedelta
-from fastapi import FastAPI, HTTPException, Request
+
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -18,13 +20,33 @@ from prediction import heuristic_confirmation_score, recommendation_score
 from db import fetch_trains_for_route, fetch_pnr_stats, fetch_stations
 from irctc_provider import search_stations
 
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
+
 log = logging.getLogger("smart-ticket-ai")
 
-app = FastAPI(title="Smart Ticket AI — Phase 1 API")
+
+app = FastAPI(
+    title="Smart Ticket AI — Phase 1 API"
+)
+
+
+# ---------------------------------------------------------
+# ADMIN SECURITY
+# ---------------------------------------------------------
+
+TRAIN_STOPS_ADMIN_TOKEN = os.environ.get(
+    "TRAIN_STOPS_ADMIN_TOKEN",
+    "",
+)
+
+
+# ---------------------------------------------------------
+# CORS
+# ---------------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,8 +56,13 @@ app.add_middleware(
 )
 
 
+# ---------------------------------------------------------
+# STARTUP CHECK
+# ---------------------------------------------------------
+
 @app.on_event("startup")
 def _startup_check() -> None:
+
     from db import SUPABASE_URL, SUPABASE_KEY
 
     log.info(
@@ -46,59 +73,104 @@ def _startup_check() -> None:
 
     if not SUPABASE_URL or not SUPABASE_KEY:
         log.error(
-            "Database credentials are missing — /stations and /search will "
-            "return empty results. Set SUPABASE_URL and SUPABASE_KEY."
+            "Database credentials are missing — "
+            "/stations and /search will return empty results. "
+            "Set SUPABASE_URL and SUPABASE_KEY."
         )
 
 
+# ---------------------------------------------------------
+# REQUEST LOGGER
+# ---------------------------------------------------------
+
 @app.middleware("http")
-async def request_logger(request: Request, call_next):
-    log.info("--> %s %s", request.method, request.url.path)
+async def request_logger(
+    request: Request,
+    call_next,
+):
+
+    log.info(
+        "--> %s %s",
+        request.method,
+        request.url.path,
+    )
+
     response = await call_next(request)
+
     log.info(
         "<-- %s %s %s",
         request.method,
         request.url.path,
         response.status_code,
     )
+
     return response
 
+
+# ---------------------------------------------------------
+# GLOBAL ERROR HANDLER
+# ---------------------------------------------------------
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(
     request: Request,
     exc: Exception,
 ):
-    """Log the traceback and always return a CORS-safe JSON error."""
-    log.error("Unhandled error on %s", request.url.path)
+
+    log.error(
+        "Unhandled error on %s",
+        request.url.path,
+    )
+
     traceback.print_exc()
 
     return JSONResponse(
         status_code=500,
         content={
-            "detail": f"Internal error in {request.url.path}: {exc}"
+            "detail": (
+                f"Internal error in "
+                f"{request.url.path}: {exc}"
+            )
         },
-        headers={"Access-Control-Allow-Origin": "*"},
+        headers={
+            "Access-Control-Allow-Origin": "*"
+        },
     )
 
+
+# ---------------------------------------------------------
+# STATION SEARCH
+# ---------------------------------------------------------
 
 @app.get("/stations")
 def stations(
     q: str | None = None,
     limit: int = 100,
 ) -> list[dict]:
-    """Search live railway stations, with Supabase fallback."""
 
-    limit = max(1, min(limit, 100))
+    """
+    Search live railway stations,
+    with Supabase fallback.
+    """
 
-    # When user searches, use live RapidAPI station search first.
+    limit = max(
+        1,
+        min(limit, 100),
+    )
+
+    # -----------------------------------------------------
+    # LIVE RAPIDAPI SEARCH
+    # -----------------------------------------------------
+
     if q and q.strip():
+
         live_rows = search_stations(
             q.strip(),
             limit=limit,
         )
 
         if live_rows:
+
             log.info(
                 "stations | live q=%r matched=%d",
                 q,
@@ -111,23 +183,34 @@ def stations(
                     "name": r.get("name"),
                     "city": r.get("city"),
                     "is_popular": bool(
-                        r.get("is_popular", False)
+                        r.get(
+                            "is_popular",
+                            False,
+                        )
                     ),
                 }
                 for r in live_rows[:limit]
             ]
 
-    # Fallback: existing Supabase station list.
+    # -----------------------------------------------------
+    # SUPABASE FALLBACK
+    # -----------------------------------------------------
+
     try:
+
         rows = fetch_stations()
+
     except Exception as exc:
+
         log.exception(
             "fetch_stations failed: %s",
             exc,
         )
+
         rows = []
 
     if q:
+
         needle = q.strip().lower()
 
         rows = [
@@ -156,17 +239,32 @@ def stations(
             "name": r.get("name"),
             "city": r.get("city"),
             "is_popular": bool(
-                r.get("is_popular", False)
+                r.get(
+                    "is_popular",
+                    False,
+                )
             ),
         }
         for r in rows[:limit]
     ]
 
 
-def _days_before(journey_date_str: str) -> int:
+# ---------------------------------------------------------
+# DATE HELPERS
+# ---------------------------------------------------------
+
+def _days_before(
+    journey_date_str: str,
+) -> int:
+
     try:
-        d = date.fromisoformat(journey_date_str)
+
+        d = date.fromisoformat(
+            journey_date_str
+        )
+
     except ValueError:
+
         return 7
 
     return max(
@@ -175,14 +273,23 @@ def _days_before(journey_date_str: str) -> int:
     )
 
 
-def _seat_status(confirm_probability: int) -> SeatStatus:
+# ---------------------------------------------------------
+# SEAT STATUS
+# ---------------------------------------------------------
+
+def _seat_status(
+    confirm_probability: int,
+) -> SeatStatus:
+
     if confirm_probability >= 80:
+
         return SeatStatus(
             label=f"AVL {confirm_probability}",
             tone="success",
         )
 
     if confirm_probability >= 55:
+
         return SeatStatus(
             label=f"WL {100 - confirm_probability}",
             tone="warning",
@@ -194,10 +301,15 @@ def _seat_status(confirm_probability: int) -> SeatStatus:
     )
 
 
+# ---------------------------------------------------------
+# AVAILABILITY
+# ---------------------------------------------------------
+
 def _build_availability(
     journey_date: str,
     days_before: int,
 ) -> dict:
+
     return {
         cls: _seat_status(
             heuristic_confirmation_score(
@@ -209,6 +321,10 @@ def _build_availability(
         for cls in ALL_CLASSES
     }
 
+
+# ---------------------------------------------------------
+# CONFIRMATION SCORE
+# ---------------------------------------------------------
 
 def _confirmation_score_and_reason(
     train_number: str,
@@ -223,6 +339,7 @@ def _confirmation_score_and_reason(
     )
 
     if stats and stats["total"] > 0:
+
         score = round(
             stats["confirm_rate"] * 100
         )
@@ -239,7 +356,8 @@ def _confirmation_score_and_reason(
         )
 
         reason = (
-            f"{stats['confirmed']}/{stats['total']} "
+            f"{stats['confirmed']}/"
+            f"{stats['total']} "
             f"historically confirmed on this "
             f"train/class ({sample_note})."
         )
@@ -263,6 +381,10 @@ def _confirmation_score_and_reason(
     return score, reason
 
 
+# ---------------------------------------------------------
+# TRAIN SEARCH
+# ---------------------------------------------------------
+
 @app.post(
     "/search",
     response_model=SearchResult,
@@ -280,15 +402,15 @@ def search(
     )
 
     try:
+
         train_rows = fetch_trains_for_route(
             query.source,
             query.destination,
             query.date,
-         
         )
-        
 
     except Exception as exc:
+
         log.exception(
             "fetch_trains_for_route failed: %s",
             exc,
@@ -297,12 +419,13 @@ def search(
         raise HTTPException(
             status_code=503,
             detail=(
-                "Train database is temporarily unreachable. "
-                "Please retry."
+                "Train database is temporarily "
+                "unreachable. Please retry."
             ),
         )
 
     if not train_rows:
+
         log.warning(
             "search | no trains for %s -> %s",
             query.source,
@@ -335,6 +458,7 @@ def search(
         )
 
         try:
+
             h, m = (
                 t["duration"]
                 .lower()
@@ -344,10 +468,12 @@ def search(
             )
 
             duration_minutes = (
-                int(h) * 60 + int(m)
+                int(h) * 60
+                + int(m)
             )
 
         except Exception:
+
             duration_minutes = 300
 
         rec = TrainRecommendation(
@@ -383,10 +509,21 @@ def search(
 
     best, *rest = recommendations
 
+    # -----------------------------------------------------
+    # ALTERNATE STATIONS
+    # -----------------------------------------------------
+
     alternate_stations = [
+
         AlternateStation(
-            code=f"{query.source[:3].upper()}{i+1}",
-            name=f"{query.source} {name}",
+            code=(
+                f"{query.source[:3].upper()}"
+                f"{i+1}"
+            ),
+            name=(
+                f"{query.source} "
+                f"{name}"
+            ),
             distanceKm=10 + i * 12,
             extraTravel=f"{20 + i * 10} min",
             availability=_seat_status(
@@ -397,6 +534,7 @@ def search(
                 )
             ),
         )
+
         for i, name in enumerate(
             [
                 "Central Jn",
@@ -407,20 +545,31 @@ def search(
         )
     ]
 
+    # -----------------------------------------------------
+    # ALTERNATE DATES
+    # -----------------------------------------------------
+
     try:
+
         today = (
-            date.fromisoformat(query.date)
+            date.fromisoformat(
+                query.date
+            )
             if query.date
             else date.today()
         )
 
     except ValueError:
+
         today = date.today()
 
     alternate_dates = []
 
     for i in range(7):
-        d = today + timedelta(days=i)
+
+        d = today + timedelta(
+            days=i
+        )
 
         db_ = max(
             0,
@@ -437,12 +586,19 @@ def search(
             AlternateDate(
                 date=d.isoformat(),
                 weekday=d.strftime("%a"),
-                status=_seat_status(confirm),
+                status=_seat_status(
+                    confirm
+                ),
                 fare=950 + i * 120,
             )
         )
 
+    # -----------------------------------------------------
+    # AI INSIGHTS
+    # -----------------------------------------------------
+
     ai_insights = [
+
         (
             f"Historical patterns suggest "
             f"{best.trainName} confirms "
@@ -450,11 +606,13 @@ def search(
             f"{query.travelClass} bookings this far "
             f"before departure."
         ),
+
         (
             "Booking earlier generally raises "
             "confirmation probability — see the "
             "date comparison below."
         ),
+
         (
             f"{alternate_stations[0].name} shows "
             f"comparable availability with only "
@@ -473,12 +631,21 @@ def search(
     )
 
 
+# ---------------------------------------------------------
+# HEALTH
+# ---------------------------------------------------------
+
 @app.get("/health")
 def health():
-    from db import SUPABASE_URL, SUPABASE_KEY
+
+    from db import (
+        SUPABASE_URL,
+        SUPABASE_KEY,
+    )
 
     configured = bool(
-        SUPABASE_URL and SUPABASE_KEY
+        SUPABASE_URL
+        and SUPABASE_KEY
     )
 
     stations_count = (
@@ -497,20 +664,100 @@ def health():
     }
 
 
-from chat import parse_intent, explain_result
+# ---------------------------------------------------------
+# TRAIN-STOPS DRY-RUN ADMIN ENDPOINT
+# ---------------------------------------------------------
+
+@app.get(
+    "/admin/dry-run-train-stops"
+)
+def dry_run_train_stops(
+    x_admin_token: str = Header(
+        default=""
+    ),
+):
+
+    # Security check.
+    if (
+        not TRAIN_STOPS_ADMIN_TOKEN
+        or x_admin_token
+        != TRAIN_STOPS_ADMIN_TOKEN
+    ):
+
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+        )
+
+    # Import the dry-run function.
+    from scripts.import_train_stops import (
+        run_dry_run_report,
+        DRY_RUN as SCRIPT_DRY_RUN,
+    )
+
+    # Never allow the endpoint to run
+    # when the importer is not in dry-run mode.
+    if not SCRIPT_DRY_RUN:
+
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "DRY_RUN is disabled; "
+                "refusing to execute."
+            ),
+        )
+
+    try:
+
+        report = run_dry_run_report()
+
+    except Exception as exc:
+
+        log.error(
+            "dry_run_train_stops failed: %s",
+            type(exc).__name__,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Dry run failed. "
+                "Check server logs."
+            ),
+        )
+
+    return report
+
+
+# ---------------------------------------------------------
+# CHAT / MISSION AI
+# ---------------------------------------------------------
+
+from chat import (
+    parse_intent,
+    explain_result,
+)
 
 
 @app.post("/chat")
-def chat(payload: dict):
+def chat(
+    payload: dict,
+):
+
     message = str(
-        payload.get("message", "") or ""
+        payload.get(
+            "message",
+            "",
+        )
+        or ""
     ).strip()
 
     if not message:
+
         return {
             "reply": (
-                "Tell me where you'd like to "
-                "travel and when."
+                "Tell me where you'd like "
+                "to travel and when."
             ),
             "result": None,
         }
@@ -521,9 +768,13 @@ def chat(payload: dict):
     )
 
     try:
-        intent = parse_intent(message)
+
+        intent = parse_intent(
+            message
+        )
 
     except Exception as exc:
+
         log.exception(
             "chat | intent parsing failed: %s",
             exc,
@@ -549,10 +800,12 @@ def chat(payload: dict):
     ]
 
     if missing:
+
         return {
             "reply": (
                 "I need a bit more info — could you "
-                f"tell me your {', '.join(missing)}?"
+                f"tell me your "
+                f"{', '.join(missing)}?"
             ),
             "result": None,
         }
@@ -568,28 +821,37 @@ def chat(payload: dict):
     )
 
     try:
-        result = search(query)
+
+        result = search(
+            query
+        )
 
     except HTTPException as exc:
+
         return {
-            "reply": str(exc.detail),
+            "reply": str(
+                exc.detail
+            ),
             "result": None,
         }
 
     try:
+
         reply = explain_result(
             message,
             result.model_dump(),
         )
 
     except Exception as exc:
+
         log.exception(
             "chat | explanation failed: %s",
             exc,
         )
 
         reply = (
-            f"Best option: {result.best.trainName} "
+            f"Best option: "
+            f"{result.best.trainName} "
             f"({result.best.trainNumber}), "
             f"~{result.best.confirmProbability}% "
             f"confirmation chance."
@@ -598,4 +860,4 @@ def chat(payload: dict):
     return {
         "reply": reply,
         "result": result.model_dump(),
-            }
+        }

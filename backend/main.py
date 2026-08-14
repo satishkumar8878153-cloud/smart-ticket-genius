@@ -711,12 +711,9 @@ def dry_run_train_stops(
 
         report = run_dry_run_report()
 
-    except Exception as exc:
+    except Exception:
 
-        log.error(
-            "dry_run_train_stops failed: %s",
-            type(exc).__name__,
-        )
+            log.exception("dry_run_train_stops failed")
 
         raise HTTPException(
             status_code=500,

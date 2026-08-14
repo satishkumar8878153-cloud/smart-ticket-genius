@@ -15,10 +15,13 @@ SAFETY RULES FOLLOWED:
   is not True, so flipping the module-level flag is the only way to enable
   writes, and even then only via the CLI path (main()), never via the
   FastAPI admin endpoint.
+- Downloads the full file before parsing (instead of streaming) to avoid a
+  known ijson + httpx streaming incompatibility (SystemError / ValueError).
 """
 
 import ijson.backends.python as ijson
 import httpx
+import io
 import os
 import sys
 from collections import defaultdict
@@ -48,9 +51,11 @@ def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str])
     errors = []
     grouped: dict[str, list[dict]] = defaultdict(list)
 
-    with httpx.stream("GET", url, timeout=120.0, follow_redirects=True) as resp:
-        resp.raise_for_status()
-        for row in ijson.items(resp.iter_bytes(), "item"):
+    response = httpx.get(url, timeout=180.0, follow_redirects=True)
+    response.raise_for_status()
+
+    with io.BytesIO(response.content) as buffer:
+        for row in ijson.items(buffer, "item"):
             stats["total_source_rows"] += 1
             train_number = str(row.get("train_number", "")).strip()
 
@@ -207,3 +212,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+          

@@ -668,16 +668,8 @@ def health():
 # TRAIN-STOPS DRY-RUN ADMIN ENDPOINT
 # ---------------------------------------------------------
 
-@app.get(
-    "/admin/dry-run-train-stops"
-)
-def dry_run_train_stops(
-    x_admin_token: str = Header(
-        default=""
-    ),
-):
-
-    # Security check.
+@app.get("/admin/dry-run-train-stops")
+def dry_run_train_stops(x_admin_token: str = Header(default="")):
     if (
         not TRAIN_STOPS_ADMIN_TOKEN
         or x_admin_token
@@ -713,7 +705,7 @@ def dry_run_train_stops(
 
     except Exception:
 
-            log.exception("dry_run_train_stops failed")
+        log.exception("dry_run_train_stops failed")
 
         raise HTTPException(
             status_code=500,

@@ -17,7 +17,7 @@ SAFETY RULES FOLLOWED:
   FastAPI admin endpoint.
 """
 
-import ijson
+import ijson.backends.python as ijson
 import httpx
 import os
 import sys

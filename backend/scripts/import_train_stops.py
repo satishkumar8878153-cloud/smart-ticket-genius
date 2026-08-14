@@ -10,7 +10,11 @@ SAFETY RULES FOLLOWED:
 - Validates station_code exists in public.stations before inserting.
 - Rejects malformed rows into an error report instead of silently fixing them.
 - Only imports a small, explicit whitelist of train numbers first (Phase 6),
-  not the whole file — extend TRAIN_WHITELIST once verified.
+  not the whole file.
+- run_dry_run_report() NEVER writes to Supabase. It hard-refuses if DRY_RUN
+  is not True, so flipping the module-level flag is the only way to enable
+  writes, and even then only via the CLI path (main()), never via the
+  FastAPI admin endpoint.
 """
 
 import ijson
@@ -54,6 +58,7 @@ def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str])
                 continue
 
             station_code = str(row.get("station_code", "")).strip().upper()
+            station_name = row.get("station_name")
             arrival = row.get("arrival")
             departure = row.get("departure")
             day = row.get("day", 0)
@@ -74,6 +79,7 @@ def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str])
             grouped[train_number].append({
                 "train_number": train_number,
                 "station_code": station_code,
+                "station_name": station_name,
                 "arrival_time": None if arrival in (None, "None") else str(arrival),
                 "departure_time": None if departure in (None, "None") else str(departure),
                 "day_offset": int(day) if str(day).isdigit() else 0,
@@ -94,15 +100,15 @@ def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str])
     per_train_detail = {}
     for train_number, stops in grouped.items():
         stops_sorted = sorted(stops, key=lambda r: r["_source_order"])
-        ordered_codes = [s["station_code"] for s in stops_sorted]
         per_train_detail[train_number] = {
             "stop_count": len(stops_sorted),
-            "first_station": ordered_codes[0] if ordered_codes else None,
-            "last_station": ordered_codes[-1] if ordered_codes else None,
-            "ordered_station_codes": ordered_codes,
+            "first_station": stops_sorted[0]["station_code"] if stops_sorted else None,
+            "last_station": stops_sorted[-1]["station_code"] if stops_sorted else None,
+            "ordered_station_codes": [s["station_code"] for s in stops_sorted],
+            "ordered_station_names": [s.get("station_name") for s in stops_sorted],
         }
 
-    return valid_rows, errors, stats, per_train_detail
+    return valid_rows, errors, dict(stats), per_train_detail
 
 
 def batch_upsert(client, rows: list[dict], batch_size: int = 500):
@@ -117,46 +123,71 @@ def batch_upsert(client, rows: list[dict], batch_size: int = 500):
     return inserted
 
 
+def run_dry_run_report() -> dict:
+    """Callable, JSON-safe dry-run entry point for the FastAPI admin endpoint.
+
+    HARD SAFETY GUARD: refuses to run at all unless DRY_RUN is True.
+    Performs ZERO writes to Supabase under any circumstance -- it never
+    calls batch_upsert.
+    """
+    if not DRY_RUN:
+        raise RuntimeError(
+            "DRY_RUN is False. run_dry_run_report() refuses to execute. "
+            "This function never writes to the database regardless, but "
+            "the False state itself is treated as a misconfiguration."
+        )
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL / SUPABASE_KEY not set.")
+
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    valid_stations = get_valid_station_codes(client)
+    valid_rows, errors, stats, per_train_detail = stream_and_validate(
+        SCHEDULES_URL, TRAIN_WHITELIST, valid_stations
+    )
+
+    missing = sorted(TRAIN_WHITELIST - set(per_train_detail.keys()))
+
+    return {
+        "dry_run": True,
+        "database_writes_performed": False,
+        "valid_station_codes_loaded": len(valid_stations),
+        "total_source_rows_scanned": stats.get("total_source_rows", 0),
+        "trains_requested": sorted(TRAIN_WHITELIST),
+        "trains_found_in_source": stats.get("trains_found", 0),
+        "trains_not_found_in_source": missing,
+        "total_valid_rows": stats.get("valid_rows", 0),
+        "unmatched_station_codes_count": stats.get("unmatched_station_codes", 0),
+        "invalid_train_numbers_count": stats.get("invalid_train_numbers", 0),
+        "rejected_rows_total": len(errors),
+        "per_train_detail": per_train_detail,
+        "sample_rejected_rows": errors[:20],
+    }
+
+
 def main():
     if not SUPABASE_URL or not SUPABASE_KEY:
         print("ERROR: SUPABASE_URL / SUPABASE_KEY not set.")
         sys.exit(1)
 
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-    print("Fetching valid station codes from public.stations ...")
-    valid_stations = get_valid_station_codes(client)
-    print(f"  -> {len(valid_stations)} valid station codes loaded.")
-
-    print(f"Streaming schedules.json, filtering for {len(TRAIN_WHITELIST)} whitelisted trains ...")
-    valid_rows, errors, stats, per_train_detail = stream_and_validate(SCHEDULES_URL, TRAIN_WHITELIST, valid_stations)
-
     if DRY_RUN:
+        report = run_dry_run_report()
         print("\n=== DRY RUN REPORT (NO DATABASE WRITES PERFORMED) ===")
-        print(f"total_source_rows_scanned: {stats['total_source_rows']}")
-        print(f"trains_found_in_whitelist: {stats['trains_found']} / {len(TRAIN_WHITELIST)} requested")
-        missing = TRAIN_WHITELIST - set(per_train_detail.keys())
-        if missing:
-            print(f"trains_NOT_found_in_source: {sorted(missing)}")
-        print(f"total_valid_rows: {stats['valid_rows']}")
-        print(f"unmatched_station_codes: {stats['unmatched_station_codes']}")
-        print(f"invalid_train_numbers: {stats['invalid_train_numbers']}")
-        print(f"rejected_rows_total: {len(errors)}")
-
-        for train_number, detail in per_train_detail.items():
-            print(f"\n--- Train {train_number} ---")
-            print(f"  stop_count: {detail['stop_count']}")
-            print(f"  first_station: {detail['first_station']}")
-            print(f"  last_station: {detail['last_station']}")
-            print(f"  ordered_station_codes: {detail['ordered_station_codes']}")
-
-        if errors:
-            print(f"\nSample rejected rows (up to 20 shown):")
-            for e in errors[:20]:
-                print(f"  {e['reason']}: {e['row']}")
-
+        for k, v in report.items():
+            if k == "per_train_detail":
+                for tn, detail in v.items():
+                    print(f"\n--- Train {tn} ---")
+                    for dk, dv in detail.items():
+                        print(f"  {dk}: {dv}")
+            else:
+                print(f"{k}: {v}")
         print("\nDRY RUN COMPLETE. No rows were inserted or updated in Supabase.")
         return
+
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    valid_stations = get_valid_station_codes(client)
+    valid_rows, errors, stats, per_train_detail = stream_and_validate(
+        SCHEDULES_URL, TRAIN_WHITELIST, valid_stations
+    )
 
     print("Inserting validated rows (idempotent upsert) ...")
     inserted = batch_upsert(client, valid_rows)

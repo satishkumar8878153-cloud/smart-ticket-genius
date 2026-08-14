@@ -91,17 +91,10 @@ def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str])
                 "_source_order": stats["total_source_rows"],
             })
 
-    valid_rows = []
-    for train_number, stops in grouped.items():
-        stops_sorted = sorted(stops, key=lambda r: r["_source_order"])
-        for i, s in enumerate(stops_sorted, start=1):
-            s["stop_sequence"] = i
-            del s["_source_order"]
-            valid_rows.append(s)
-        stats["valid_rows"] += len(stops_sorted)
-
-    stats["trains_found"] = len(grouped)
-
+    # Build per_train_detail FIRST, while _source_order still exists on
+    # every dict. The next block deletes _source_order in place, and since
+    # grouped[...] holds the SAME dict objects, doing this in the wrong
+    # order causes a KeyError on the second pass.
     per_train_detail = {}
     for train_number, stops in grouped.items():
         stops_sorted = sorted(stops, key=lambda r: r["_source_order"])
@@ -112,6 +105,17 @@ def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str])
             "ordered_station_codes": [s["station_code"] for s in stops_sorted],
             "ordered_station_names": [s.get("station_name") for s in stops_sorted],
         }
+
+    valid_rows = []
+    for train_number, stops in grouped.items():
+        stops_sorted = sorted(stops, key=lambda r: r["_source_order"])
+        for i, s in enumerate(stops_sorted, start=1):
+            s["stop_sequence"] = i
+            del s["_source_order"]
+            valid_rows.append(s)
+        stats["valid_rows"] += len(stops_sorted)
+
+    stats["trains_found"] = len(grouped)
 
     return valid_rows, errors, dict(stats), per_train_detail
 
@@ -212,4 +216,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-          
+  

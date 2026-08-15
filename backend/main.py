@@ -719,57 +719,57 @@ def dry_run_train_stops(x_admin_token: str = Header(default="")):
 
 
 # --------------------------------------------------------------
-    # STATIONS.JSON INSPECTION ADMIN ENDPOINT
-    # --------------------------------------------------------------
+# STATIONS.JSON INSPECTION ADMIN ENDPOINT
+# --------------------------------------------------------------
 
-    @app.get("/admin/inspect-stations-json")
-    def inspect_stations_json(x_admin_token: str = Header(default="")):
-        if not TRAIN_STOPS_ADMIN_TOKEN or x_admin_token != TRAIN_STOPS_ADMIN_TOKEN:
-            raise HTTPException(status_code=401, detail="Unauthorized")
+@app.get("/admin/inspect-stations-json")
+def inspect_stations_json(x_admin_token: str = Header(default="")):
+    if not TRAIN_STOPS_ADMIN_TOKEN or x_admin_token != TRAIN_STOPS_ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-        import httpx
+    import httpx
 
-        target_codes = {
-            "CSB", "TKJ", "ANVR", "PGMD", "OKA", "CNJ", "TKD", "SBB",
-            "FDB", "MIU", "FDN", "DER", "BVH", "BRKY", "AST", "AJR", "PWL", "RDE",
-        }
+    target_codes = {
+        "CSB", "TKJ", "ANVR", "PGMD", "OKA", "CNJ", "TKD", "SBB",
+        "FDB", "MIU", "FDN", "DER", "BVH", "BRKY", "AST", "AJR", "PWL", "RDE",
+    }
 
-        try:
-            response = httpx.get(
-                "https://raw.githubusercontent.com/datameet/railways/master/stations.json",
-                timeout=60.0,
-                follow_redirects=True,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except Exception:
-            log.exception("inspect_stations_json failed")
-            raise HTTPException(status_code=500, detail="Failed to fetch/parse stations.json. Check server logs.")
+    try:
+        response = httpx.get(
+            "https://raw.githubusercontent.com/datameet/railways/master/stations.json",
+            timeout=60.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        log.exception("inspect_stations_json failed")
+        raise HTTPException(status_code=500, detail="Failed to fetch/parse stations.json. Check server logs.")
 
-        features = data.get("features", [])
-        found = {}
-        for feature in features:
-            props = feature.get("properties", {})
-            code = props.get("code")
-            if code in target_codes:
-                found[code] = {
-                    "name": props.get("name"),
-                    "state": props.get("state"),
-                    "zone": props.get("zone"),
-                    "address": props.get("address"),
-                }
+    features = data.get("features", [])
+    found = {}
+    for feature in features:
+        props = feature.get("properties", {})
+        code = props.get("code")
+        if code in target_codes:
+            found[code] = {
+                "name": props.get("name"),
+                "state": props.get("state"),
+                "zone": props.get("zone"),
+                "address": props.get("address"),
+            }
 
-        missing = sorted(target_codes - set(found.keys()))
+    missing = sorted(target_codes - set(found.keys()))
 
-        return {
-            "inspection_only": True,
-            "database_writes_performed": False,
-            "total_features_in_stations_json": len(features),
-            "target_codes_requested": sorted(target_codes),
-            "found_count": len(found),
-            "found": found,
-            "not_found_in_stations_json": missing,
-        }
+    return {
+        "inspection_only": True,
+        "database_writes_performed": False,
+        "total_features_in_stations_json": len(features),
+        "target_codes_requested": sorted(target_codes),
+        "found_count": len(found),
+        "found": found,
+        "not_found_in_stations_json": missing,
+    }
 # ---------------------------------------------------------
 # CHAT / MISSION AI
 # ---------------------------------------------------------

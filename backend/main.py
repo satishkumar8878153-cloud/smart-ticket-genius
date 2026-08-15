@@ -718,58 +718,132 @@ def dry_run_train_stops(x_admin_token: str = Header(default="")):
     return report
 
 
-# --------------------------------------------------------------
-# STATIONS.JSON INSPECTION ADMIN ENDPOINT
-# --------------------------------------------------------------
+# ---------------------------------------------------------
+# FULL STATIONS IMPORT DRY-RUN ADMIN ENDPOINT
+# ---------------------------------------------------------
 
-@app.get("/admin/inspect-stations-json")
-def inspect_stations_json(x_admin_token: str = Header(default="")):
-    if not TRAIN_STOPS_ADMIN_TOKEN or x_admin_token != TRAIN_STOPS_ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+@app.get("/admin/dry-run-stations-import")
+def dry_run_stations_import(x_admin_token: str = Header(default="")):
+   if not TRAIN_STOPS_ADMIN_TOKEN or x_admin_token != TRAIN_STOPS_ADMIN_TOKEN:
+       raise HTTPException(status_code=401, detail="Unauthorized")
 
-    import httpx
+   import httpx
 
-    target_codes = {
-        "CSB", "TKJ", "ANVR", "PGMD", "OKA", "CNJ", "TKD", "SBB",
-        "FDB", "MIU", "FDN", "DER", "BVH", "BRKY", "AST", "AJR", "PWL", "RDE",
-    }
+   try:
+       response = httpx.get(
+           "https://raw.githubusercontent.com/datameet/railways/master/stations.json",
+           timeout=60.0,
+           follow_redirects=True,
+       )
+       response.raise_for_status()
+       data = response.json()
+   except Exception:
+       log.exception("dry_run_stations_import failed (fetch)")
+       raise HTTPException(
+           status_code=500,
+           detail="Failed to fetch/parse stations.json. Check server logs."
+       )
 
-    try:
-        response = httpx.get(
-            "https://raw.githubusercontent.com/datameet/railways/master/stations.json",
-            timeout=60.0,
-            follow_redirects=True,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except Exception:
-        log.exception("inspect_stations_json failed")
-        raise HTTPException(status_code=500, detail="Failed to fetch/parse stations.json. Check server logs.")
+   features = data.get("features", [])
+   total_source_records = len(features)
 
-    features = data.get("features", [])
-    found = {}
-    for feature in features:
-        props = feature.get("properties", {})
-        code = props.get("code")
-        if code in target_codes:
-            found[code] = {
-                "name": props.get("name"),
-                "state": props.get("state"),
-                "zone": props.get("zone"),
-                "address": props.get("address"),
-            }
+   invalid_records = []
+   code_groups: dict[str, list[dict]] = {}
 
-    missing = sorted(target_codes - set(found.keys()))
+   for idx, feature in enumerate(features):
+       props = feature.get("properties", {}) or {}
+       code = (props.get("code") or "").strip().upper()
+       name = (props.get("name") or "").strip()
 
-    return {
-        "inspection_only": True,
-        "database_writes_performed": False,
-        "total_features_in_stations_json": len(features),
-        "target_codes_requested": sorted(target_codes),
-        "found_count": len(found),
-        "found": found,
-        "not_found_in_stations_json": missing,
-    }
+       if not code or not name:
+           invalid_records.append({
+               "index": idx,
+               "reason": "missing code or name",
+               "properties": props,
+           })
+           continue
+
+       code_groups.setdefault(code, []).append({
+           "name": name,
+           "state": props.get("state"),
+           "zone": props.get("zone"),
+           "address": props.get("address"),
+           "city": props.get("city"),
+           "index": idx,
+       })
+
+   unique_valid_station_codes = len(code_groups)
+
+   exact_duplicate_records = []
+   conflicting_records = []
+   duplicate_records_count = 0
+   clean_codes = {}
+
+   for code, occurrences in code_groups.items():
+       if len(occurrences) == 1:
+           clean_codes[code] = occurrences[0]
+           continue
+
+       duplicate_records_count += len(occurrences) - 1
+       distinct_names = {o["name"] for o in occurrences}
+
+       if len(distinct_names) == 1:
+           exact_duplicate_records.append({
+               "code": code,
+               "name": occurrences[0]["name"],
+               "occurrences": len(occurrences),
+           })
+           clean_codes[code] = occurrences[0]
+       else:
+           conflicting_records.append({
+               "code": code,
+               "conflicting_names": list(distinct_names),
+               "occurrences": len(occurrences),
+           })
+
+   from db import get_client
+
+   supa_client = get_client()
+   resp = supa_client.table("stations").select("code").execute()
+   existing_codes = {
+       r["code"] for r in (resp.data or []) if r.get("code")
+   }
+
+   missing_codes = sorted(set(clean_codes.keys()) - existing_codes)
+   already_existing = sorted(set(clean_codes.keys()) & existing_codes)
+
+   new_stations = [
+       {
+           "code": code,
+           "name": clean_codes[code]["name"],
+           "city": clean_codes[code].get("city"),
+           "_reference_only": {
+               "state": clean_codes[code].get("state"),
+               "zone": clean_codes[code].get("zone"),
+               "address": clean_codes[code].get("address"),
+           },
+       }
+       for code in missing_codes
+   ]
+
+   return {
+       "dry_run": True,
+       "database_writes_performed": False,
+       "total_source_records": total_source_records,
+       "invalid_records_count": len(invalid_records),
+       "unique_valid_station_codes": unique_valid_station_codes,
+       "duplicate_records_count": duplicate_records_count,
+       "exact_duplicate_codes_count": len(exact_duplicate_records),
+       "conflicting_codes_count": len(conflicting_records),
+       "existing_stations_in_db": len(existing_codes),
+       "already_matching_source": len(already_existing),
+       "missing_new_stations_count": len(new_stations),
+       "sample_invalid_records": invalid_records[:10],
+       "sample_exact_duplicates": exact_duplicate_records[:10],
+       "sample_conflicting_records": conflicting_records[:10],
+       "sample_new_stations": new_stations[:20],
+       }
+    
 # ---------------------------------------------------------
 # CHAT / MISSION AI
 # ---------------------------------------------------------

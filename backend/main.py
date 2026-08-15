@@ -842,8 +842,7 @@ def dry_run_stations_import(x_admin_token: str = Header(default="")):
        "sample_exact_duplicates": exact_duplicate_records[:10],
        "sample_conflicting_records": conflicting_records[:10],
        "sample_new_stations": new_stations[:20],
-       }
-    
+
 # ---------------------------------------------------------
 # CHAT / MISSION AI
 # ---------------------------------------------------------
@@ -976,3 +975,157 @@ def chat(
         "reply": reply,
         "result": result.model_dump(),
         }
+# --------------------------------------------------------------
+# STATIONS IMPORT (ACTUAL WRITE) ADMIN ENDPOINT
+# --------------------------------------------------------------
+
+STATIONS_IMPORT_ENABLED = os.environ.get("STATIONS_IMPORT_ENABLED", "false").strip().lower() == "true"
+
+
+@app.post("/admin/import-stations")
+def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
+    if not TRAIN_STOPS_ADMIN_TOKEN or x_admin_token != TRAIN_STOPS_ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not STATIONS_IMPORT_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="Stations import is disabled. STATIONS_IMPORT_ENABLED must be set to true.",
+        )
+
+    if confirm != "yes-import-missing-stations":
+        raise HTTPException(
+            status_code=400,
+            detail="Missing or incorrect confirm parameter. Pass ?confirm=yes-import-missing-stations to proceed.",
+        )
+
+    import httpx
+    from db import get_client
+
+    try:
+        response = httpx.get(
+            "https://raw.githubusercontent.com/datameet/railways/master/stations.json",
+            timeout=60.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        log.exception("import_stations failed (fetch)")
+        raise HTTPException(status_code=500, detail="Failed to fetch/parse stations.json. Check server logs.")
+
+    features = data.get("features", [])
+
+    invalid_count = 0
+    code_groups: dict[str, list[dict]] = {}
+
+    for feature in features:
+        props = feature.get("properties", {}) or {}
+        code = (props.get("code") or "").strip().upper()
+        name = (props.get("name") or "").strip()
+
+        if not code or not name:
+            invalid_count += 1
+            continue
+
+        code_groups.setdefault(code, []).append({
+            "name": name,
+            "city": props.get("city"),
+        })
+
+    clean_codes = {}
+    duplicate_count = 0
+    conflicting_count = 0
+
+    for code, occurrences in code_groups.items():
+        if len(occurrences) == 1:
+            clean_codes[code] = occurrences[0]
+            continue
+        distinct_names = {o["name"] for o in occurrences}
+        if len(distinct_names) == 1:
+            clean_codes[code] = occurrences[0]
+            duplicate_count += len(occurrences) - 1
+        else:
+            conflicting_count += 1
+
+    supa_client = get_client()
+    resp = supa_client.table("stations").select("code").execute()
+    existing_codes = {r["code"] for r in (resp.data or []) if r.get("code")}
+
+    missing_codes = sorted(set(clean_codes.keys()) - existing_codes)
+
+    rows_to_insert = [
+        {
+            "code": code,
+            "name": clean_codes[code]["name"],
+            "city": clean_codes[code].get("city"),
+        }
+        for code in missing_codes
+    ]
+
+    batch_size = 500
+    inserted_count = 0
+    skipped_count = 0
+    failed_batches = []
+    batch_reports = []
+
+    for i in range(0, len(rows_to_insert), batch_size):
+        batch_index = i // batch_size
+        batch = rows_to_insert[i:i + batch_size]
+        try:
+            result = supa_client.table("stations").upsert(
+                batch,
+                on_conflict="code",
+                ignore_duplicates=True,
+            ).execute()
+            got = len(result.data) if result.data else 0
+            inserted_count += got
+            skipped_count += len(batch) - got
+            batch_reports.append({
+                "batch_index": batch_index,
+                "attempted": len(batch),
+                "inserted": got,
+                "skipped": len(batch) - got,
+                "failed": 0,
+            })
+            log.info(
+                "import_stations batch %s | attempted=%s inserted=%s skipped=%s",
+                batch_index, len(batch), got, len(batch) - got,
+            )
+        except Exception as exc:
+            log.exception(f"import_stations batch {batch_index} failed")
+            failed_batches.append({
+                "batch_index": batch_index,
+                "batch_start": i,
+                "batch_size": len(batch),
+                "error": str(exc),
+            })
+            batch_reports.append({
+                "batch_index": batch_index,
+                "attempted": len(batch),
+                "inserted": 0,
+                "skipped": 0,
+                "failed": len(batch),
+            })
+            log.info(
+                "import_stations batch %s FAILED | attempted=%s error=%s",
+                batch_index, len(batch), str(exc),
+            )
+
+    log.info(
+        "import_stations complete | inserted=%s skipped=%s failed_batches=%s total_candidates=%s",
+        inserted_count, skipped_count, len(failed_batches), len(rows_to_insert),
+    )
+
+    return {
+        "import_executed": True,
+        "total_candidates": len(rows_to_insert),
+        "inserted_count": inserted_count,
+        "skipped_count": skipped_count,
+        "failed_batches_count": len(failed_batches),
+        "failed_batches": failed_batches,
+        "batch_reports": batch_reports,
+        "invalid_records_skipped": invalid_count,
+        "duplicate_records_merged": duplicate_count,
+        "conflicting_codes_excluded": conflicting_count,
+    }

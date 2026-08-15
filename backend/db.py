@@ -413,3 +413,23 @@ def fetch_pnr_stats(
         "total": total,
         "confirm_rate": confirmed / total,
     }
+_service_client: Client | None = None
+
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def get_service_client() -> Client:
+    """
+    SERVICE-ROLE client. Bypasses Row Level Security entirely.
+    Use ONLY for specific, deliberate backend-only write operations
+    (e.g. the /admin/import-stations endpoint). NEVER use this for
+    any user-facing read/search/chat endpoint.
+    """
+    global _service_client
+    if _service_client is None:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise RuntimeError(
+                "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set as environment variables."
+            )
+        _service_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return _service_client

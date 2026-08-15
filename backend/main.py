@@ -1000,7 +1000,43 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         )
 
     import httpx
-    from db import get_service_client
+    --- a/backend/main.py
++++ b/backend/main.py
+@@ -900,7 +900,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
+         else:
+             conflicting_count += 1
+ 
+-    supa_client = get_client()
++    supa_client = get_service_client()
+     resp = supa_client.table("stations").select("code").execute()
+     existing_codes = {r["code"] for r in (resp.data or []) if r.get("code")}
+ 
+@@ -910,7 +910,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
+         {
+             "code": code,
+             "name": clean_codes[code]["name"],
+             "city": clean_codes[code].get("city"),
+         }
+         for code in missing_codes
+     ]
+ 
+     batch_size = 500
+     inserted_count = 0
+     skipped_count = 0
+     failed_batches = []
+     batch_reports = []
+ 
+     for i in range(0, len(rows_to_insert), batch_size):
+         batch_index = i // batch_size
+         batch = rows_to_insert[i:i + batch_size]
+         try:
+-            result = supa_client.table("stations").upsert(
++            result = supa_client.table("stations").upsert(
+                 batch,
+                 on_conflict="code",
+                 ignore_duplicates=True,
+             ).execute()
+
 
     try:
         response = httpx.get(

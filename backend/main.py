@@ -1000,7 +1000,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         )
 
     import httpx
-    from db import get_client
+    from db import get_service_client
 
     try:
         response = httpx.get(

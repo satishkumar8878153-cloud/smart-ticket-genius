@@ -840,13 +840,13 @@ def dry_run_stations_import(x_admin_token: str = Header(default="")):
        "missing_new_stations_count": len(new_stations),
        "sample_invalid_records": invalid_records[:10],
        "sample_exact_duplicates": exact_duplicate_records[:10],
-       "sample_conflicting_records": conflicting_records[:10],
-       "sample_new_stations": new_stations[:20],
+               "sample_conflicting_records": conflicting_records[:10],
+        "sample_new_stations": new_stations[:20],
+    }
+
 
 # ---------------------------------------------------------
 # CHAT / MISSION AI
-# ---------------------------------------------------------
-
 from chat import (
     parse_intent,
     explain_result,

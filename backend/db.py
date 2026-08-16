@@ -327,16 +327,28 @@ def fetch_stations(
 
     client = get_client()
 
-    resp = (
-        client.table("stations")
-        .select(
-            "code, name, city"
+        all_rows = []
+    offset = 0
+
+    while True:
+        resp = (
+            client.table("stations")
+            .select(
+                "code, name, city"
+            )
+            .range(offset, offset + 999)
+            .execute()
         )
-        .execute()
-    )
 
-    rows = resp.data or []
+        batch = resp.data or []
+        all_rows.extend(batch)
 
+        if len(batch) < 1000:
+            break
+
+        offset += 1000
+
+    rows = all_rows
     if not query or not query.strip():
         return rows
 

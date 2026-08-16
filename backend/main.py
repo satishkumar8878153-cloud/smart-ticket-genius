@@ -1044,7 +1044,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         else:
             conflicting_count += 1
 
-        supa_client = get_service_client()
+    supa_client = get_service_client()
 
     existing_codes = set()
     offset = 0

@@ -803,7 +803,7 @@ def dry_run_stations_import(x_admin_token: str = Header(default="")):
 
    from db import get_client
 
-   supa_client = get_client()
+supa_client = get_client()
 
 existing_codes = set()
 offset = 0

@@ -1000,43 +1000,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         )
 
     import httpx
-    --- a/backend/main.py
-+++ b/backend/main.py
-def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
-         else:
-             conflicting_count += 1
- 
--    supa_client = get_client()
-+    supa_client = get_service_client()
-     resp = supa_client.table("stations").select("code").execute()
-     existing_codes = {r["code"] for r in (resp.data or []) if r.get("code")}
- 
-def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
-         {
-             "code": code,
-             "name": clean_codes[code]["name"],
-             "city": clean_codes[code].get("city"),
-         }
-         for code in missing_codes
-     ]
- 
-     batch_size = 500
-     inserted_count = 0
-     skipped_count = 0
-     failed_batches = []
-     batch_reports = []
- 
-     for i in range(0, len(rows_to_insert), batch_size):
-         batch_index = i // batch_size
-         batch = rows_to_insert[i:i + batch_size]
-         try:
--            result = supa_client.table("stations").upsert(
-+            result = supa_client.table("stations").upsert(
-                 batch,
-                 on_conflict="code",
-                 ignore_duplicates=True,
-             ).execute()
-
+    from db import get_service_client
 
     try:
         response = httpx.get(
@@ -1051,19 +1015,16 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         raise HTTPException(status_code=500, detail="Failed to fetch/parse stations.json. Check server logs.")
 
     features = data.get("features", [])
-
+    
     invalid_count = 0
     code_groups: dict[str, list[dict]] = {}
-
     for feature in features:
         props = feature.get("properties", {}) or {}
         code = (props.get("code") or "").strip().upper()
         name = (props.get("name") or "").strip()
-
         if not code or not name:
             invalid_count += 1
             continue
-
         code_groups.setdefault(code, []).append({
             "name": name,
             "city": props.get("city"),
@@ -1072,7 +1033,6 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
     clean_codes = {}
     duplicate_count = 0
     conflicting_count = 0
-
     for code, occurrences in code_groups.items():
         if len(occurrences) == 1:
             clean_codes[code] = occurrences[0]
@@ -1084,7 +1044,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         else:
             conflicting_count += 1
 
-    supa_client = get_client()
+    supa_client = get_service_client()
     resp = supa_client.table("stations").select("code").execute()
     existing_codes = {r["code"] for r in (resp.data or []) if r.get("code")}
 
@@ -1109,11 +1069,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         batch_index = i // batch_size
         batch = rows_to_insert[i:i + batch_size]
         try:
-            result = supa_client.table("stations").upsert(
-                batch,
-                on_conflict="code",
-                ignore_duplicates=True,
-            ).execute()
+            result = supa_client.table("stations").insert(batch).execute()
             got = len(result.data) if result.data else 0
             inserted_count += got
             skipped_count += len(batch) - got
@@ -1164,4 +1120,4 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
         "invalid_records_skipped": invalid_count,
         "duplicate_records_merged": duplicate_count,
         "conflicting_codes_excluded": conflicting_count,
-    }
+            }

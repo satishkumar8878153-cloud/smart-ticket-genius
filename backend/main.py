@@ -1002,7 +1002,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
     import httpx
     --- a/backend/main.py
 +++ b/backend/main.py
-@@ -900,7 +900,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
+def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
          else:
              conflicting_count += 1
  
@@ -1011,7 +1011,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
      resp = supa_client.table("stations").select("code").execute()
      existing_codes = {r["code"] for r in (resp.data or []) if r.get("code")}
  
-@@ -910,7 +910,7 @@ def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
+def import_stations(x_admin_token: str = Header(default=""), confirm: str = ""):
          {
              "code": code,
              "name": clean_codes[code]["name"],

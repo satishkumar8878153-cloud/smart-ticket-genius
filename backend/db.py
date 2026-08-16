@@ -327,7 +327,7 @@ def fetch_stations(
 
     client = get_client()
 
-        all_rows = []
+    all_rows = []
     offset = 0
 
     while True:

@@ -804,10 +804,30 @@ def dry_run_stations_import(x_admin_token: str = Header(default="")):
    from db import get_client
 
    supa_client = get_client()
-   resp = supa_client.table("stations").select("code").execute()
-   existing_codes = {
-       r["code"] for r in (resp.data or []) if r.get("code")
-   }
+
+existing_codes = set()
+offset = 0
+
+while True:
+    resp = (
+        supa_client.table("stations")
+        .select("code")
+        .range(offset, offset + 999)
+        .execute()
+    )
+
+    rows = resp.data or []
+
+    existing_codes.update(
+        r["code"]
+        for r in rows
+        if r.get("code")
+    )
+
+    if len(rows) < 1000:
+        break
+
+    offset += 1000
 
    missing_codes = sorted(set(clean_codes.keys()) - existing_codes)
    already_existing = sorted(set(clean_codes.keys()) & existing_codes)

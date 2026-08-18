@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertCircle, Loader2, MessageSquare, Sparkles, Train } from "lucide-react";
+import { AlertCircle, LayoutGrid, Loader2, MessageSquare, Route, ShieldCheck, Sparkles, Train } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
 import { AlternateDates } from "@/components/smart-ticket/AlternateDates";
@@ -115,6 +115,22 @@ function Home() {
             Smart Ticket AI analyzes historical confirmation rates, availability across classes,
             and nearby stations to suggest your best journey plan.
           </p>
+          <div className="mx-auto mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-center">
+            <div className="px-2">
+              <span className="font-semibold text-white">8,993</span>
+              <span className="ml-1.5 text-sm text-muted-foreground">stations</span>
+            </div>
+            <div className="hidden h-4 w-px bg-border/60 sm:block" aria-hidden />
+            <div className="px-2">
+              <span className="font-semibold text-white">1,065</span>
+              <span className="ml-1.5 text-sm text-muted-foreground">route stops</span>
+            </div>
+            <div className="hidden h-4 w-px bg-border/60 sm:block" aria-hidden />
+            <div className="px-2">
+              <span className="font-semibold text-white">62</span>
+              <span className="ml-1.5 text-sm text-muted-foreground">real booking outcomes</span>
+            </div>
+          </div>
           <Link
             to="/chat"
             className="gradient-primary mt-6 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-full px-10 py-4 text-lg font-semibold text-primary-foreground shadow-lg shadow-indigo-500/40 transition-transform hover:scale-105 sm:w-auto"
@@ -173,14 +189,15 @@ function Home() {
         ) : !loading && !error ? (
           <div className="mt-14 grid gap-4 text-center sm:grid-cols-3">
             {[
-              { t: "Confirm probability", d: "See the chance your ticket will confirm before booking." },
-              { t: "All-class matrix", d: "Compare seat status across SL, 3A, 2A, 1A, CC and EC at a glance." },
-              { t: "Smarter alternatives", d: "Nearby stations and flexible dates unlock better seats." },
+              { t: "Confirm probability", d: "See the chance your ticket will confirm before booking.", Icon: ShieldCheck },
+              { t: "All-class matrix", d: "Compare seat status across SL, 3A, 2A, 1A, CC and EC at a glance.", Icon: LayoutGrid },
+              { t: "Smarter alternatives", d: "Nearby stations and flexible dates unlock better seats.", Icon: Route },
             ].map((f) => (
               <div
                 key={f.t}
                 className="gradient-card rounded-3xl border border-border/60 p-6 text-left shadow-card"
               >
+                <f.Icon className="mb-3 h-5 w-5 text-indigo-400" />
                 <div className="text-sm font-semibold">{f.t}</div>
                 <p className="mt-1.5 text-sm text-muted-foreground">{f.d}</p>
               </div>
@@ -189,7 +206,8 @@ function Home() {
         ) : null}
 
         <footer className="mt-16 border-t border-border/60 pt-6 text-center text-xs text-muted-foreground">
-          Smart Ticket AI · Powered by Lovable Cloud · Ready for FastAPI backend
+          Smart Ticket AI · Predict · Compare · Confirm — insights from real
+          IRCTC booking history
         </footer>
       </main>
     </div>

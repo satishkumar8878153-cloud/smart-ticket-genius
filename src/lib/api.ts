@@ -1,0 +1,76 @@
+export const API_BASE = "https://smart-ticket-genius.onrender.com";
+
+export type StationMatch = {
+  code: string;
+  name?: string | null;
+  city?: string | null;
+};
+
+export type RouteStop = {
+  code: string;
+  name?: string | null;
+  departure?: string | null;
+  arrival?: string | null;
+  day_offset?: number | null;
+};
+
+export type ClassChip = {
+  label: string;
+  tone: "success" | "warning" | "danger" | string;
+};
+
+export type RouteTrain = {
+  train_number: string;
+  board: RouteStop;
+  alight: RouteStop;
+  stops_between?: number;
+  duration_minutes?: number | null;
+  classes?: Record<string, ClassChip>;
+  requested_class?: {
+    class?: string;
+    score?: number;
+    reason?: string;
+  };
+};
+
+export type RouteSearchResponse = {
+  source_query?: string;
+  destination_query?: string;
+  trains: RouteTrain[];
+};
+
+export async function resolveStations(q: string): Promise<StationMatch[]> {
+  const query = (q || "").trim();
+  if (!query) return [];
+  const url = `${API_BASE}/stations/resolve?q=${encodeURIComponent(query)}&limit=6`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Station resolve failed (${res.status})`);
+  }
+  const json = await res.json();
+  return (json.matches || []) as StationMatch[];
+}
+
+export async function routeSearch(payload: {
+  source: string;
+  destination: string;
+  date?: string;
+  travelClass?: string;
+}): Promise<RouteSearchResponse> {
+  const res = await fetch(`${API_BASE}/route-search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let detail = `Route search failed (${res.status})`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as RouteSearchResponse;
+}

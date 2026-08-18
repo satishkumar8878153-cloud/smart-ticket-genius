@@ -42,8 +42,21 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 
 def get_valid_station_codes(client) -> set[str]:
-    resp = client.table("stations").select("code").execute()
-    return {r["code"] for r in (resp.data or []) if r.get("code")}
+    codes = set()
+    offset = 0
+    while True:
+        resp = (
+            client.table("stations")
+            .select("code")
+            .range(offset, offset + 999)
+            .execute()
+        )
+        rows = resp.data or []
+        codes.update(r["code"] for r in rows if r.get("code"))
+        if len(rows) < 1000:
+            break
+        offset += 1000
+    return codes
 
 
 def stream_and_validate(url: str, whitelist: set[str], valid_stations: set[str]):
@@ -216,4 +229,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-  

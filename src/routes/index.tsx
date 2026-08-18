@@ -117,9 +117,9 @@ function Home() {
           </p>
           <Link
             to="/chat"
-            className="gradient-primary mt-6 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-elegant transition-transform hover:scale-105"
+            className="gradient-primary mt-6 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-full px-10 py-4 text-lg font-semibold text-primary-foreground shadow-lg shadow-indigo-500/40 transition-transform hover:scale-105 sm:w-auto"
           >
-            <MessageSquare className="h-4 w-4" />
+            <MessageSquare className="h-5 w-5" />
             Ask Mission AI
           </Link>
         </section>

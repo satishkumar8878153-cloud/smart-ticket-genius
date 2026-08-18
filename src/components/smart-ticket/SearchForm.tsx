@@ -23,8 +23,8 @@ export function SearchForm({
   loading?: boolean;
   initialQuery?: Partial<SearchQuery>;
 }) {
-  const [source, setSource] = useState(initialQuery?.source ?? "New Delhi");
-  const [destination, setDestination] = useState(initialQuery?.destination ?? "Mumbai Central");
+  const [source, setSource] = useState(initialQuery?.source ?? "Patna");
+  const [destination, setDestination] = useState(initialQuery?.destination ?? "New Delhi");
   const [date, setDate] = useState(
     () => initialQuery?.date ?? new Date().toISOString().slice(0, 10),
   );

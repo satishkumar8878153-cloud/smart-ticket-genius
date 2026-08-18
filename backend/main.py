@@ -1301,8 +1301,10 @@ def resolve_stations(q: str = "", limit: int = 20):
 
 def _time_to_minutes(t):
     try:
-        h, m = str(t).strip().split(":")
-        return int(h) * 60 + int(m)
+        parts = str(t).strip().split(":")
+        if len(parts) < 2:
+            return None
+        return int(parts[0]) * 60 + int(parts[1])
     except Exception:
         return None
 

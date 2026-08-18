@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertCircle, LayoutGrid, Loader2, MessageSquare, Route, ShieldCheck, Sparkles, Train } from "lucide-react";
+import { AlertCircle, LayoutGrid, Loader2, MessageSquare, Route as RouteIcon, ShieldCheck, Sparkles, Train } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
 import { AlternateDates } from "@/components/smart-ticket/AlternateDates";
@@ -191,7 +191,7 @@ function Home() {
             {[
               { t: "Confirm probability", d: "See the chance your ticket will confirm before booking.", Icon: ShieldCheck },
               { t: "All-class matrix", d: "Compare seat status across SL, 3A, 2A, 1A, CC and EC at a glance.", Icon: LayoutGrid },
-              { t: "Smarter alternatives", d: "Nearby stations and flexible dates unlock better seats.", Icon: Route },
+              { t: "Smarter alternatives", d: "Nearby stations and flexible dates unlock better seats.", Icon: RouteIcon },
             ].map((f) => (
               <div
                 key={f.t}

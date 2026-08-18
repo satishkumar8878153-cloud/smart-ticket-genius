@@ -30,9 +30,14 @@ from supabase import create_client
 SCHEDULES_URL = "https://raw.githubusercontent.com/datameet/railways/master/schedules.json"
 
 TRAIN_WHITELIST = {
+    "12310",
     "12622",
     "12658",
-    "12310",
+    "12365",
+    "13247",
+    "13248",
+    "15675",
+    "22351",
 }
 
 DRY_RUN = True

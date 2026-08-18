@@ -936,6 +936,51 @@ def chat(
             "result": None,
         }
 
+    # Prefer route-aware search (train_stops) first
+    try:
+        route_result = _route_search_core(
+            intent["source"],
+            intent["destination"],
+            intent.get("travelClass") or "SL",
+            intent.get("date"),
+        )
+        if route_result.get("trains"):
+            first = route_result["trains"][0]
+            number = first["train_number"]
+            board = first.get("board") or {}
+            alight = first.get("alight") or {}
+            duration = first.get("duration_minutes")
+            req = first.get("requested_class") or {}
+            name = number
+            try:
+                from db import get_client
+                resp = (
+                    get_client()
+                    .table("trains")
+                    .select("train_name")
+                    .eq("train_number", number)
+                    .limit(1)
+                    .execute()
+                )
+                if resp.data and resp.data[0].get("train_name"):
+                    name = resp.data[0]["train_name"]
+            except Exception:
+                pass
+            dur_txt = ""
+            if duration is not None:
+                dur_txt = f", ~{duration // 60}h {duration % 60}m"
+            day_off = alight.get("day_offset") or 0
+            reply = (
+                f"Best option: {name} ({number}) — board "
+                f"{board.get('name') or board.get('code')} at {board.get('departure')}, "
+                f"arrive {alight.get('name') or alight.get('code')} {alight.get('arrival')} "
+                f"(day +{day_off}){dur_txt}. {req.get('reason') or ''}"
+            ).strip()
+            return {"reply": reply, "result": route_result}
+    except Exception as exc:
+        log.exception("chat | route-search path failed: %s", exc)
+
+    # Fallback: existing endpoint-based search flow
     query = SearchQuery(
         source=intent["source"],
         destination=intent["destination"],
@@ -987,6 +1032,7 @@ def chat(
         "reply": reply,
         "result": result.model_dump(),
         }
+
 # --------------------------------------------------------------
 # STATIONS IMPORT (ACTUAL WRITE) ADMIN ENDPOINT
 # --------------------------------------------------------------
@@ -1309,19 +1355,14 @@ def _time_to_minutes(t):
         return None
 
 
-@app.post("/route-search")
-def route_search(payload: dict):
-    source_q = str(payload.get("source") or "").strip()
-    dest_q = str(payload.get("destination") or "").strip()
-    if not source_q or not dest_q:
-        raise HTTPException(status_code=400, detail="Both source and destination are required.")
+def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> dict:
     src = [m["code"] for m in resolve_stations(source_q)["matches"]]
     dst = [m["code"] for m in resolve_stations(dest_q)["matches"]]
     if not src or not dst:
-        raise HTTPException(status_code=404, detail="Could not resolve source or destination.")
+        return {"source_query": source_q, "destination_query": dest_q, "trains": []}
 
-    travel_class = str(payload.get("travelClass") or "SL").strip().upper() or "SL"
-    date_str = str(payload.get("date") or "").strip()
+    travel_class = str(travel_class or "SL").strip().upper() or "SL"
+    date_str = str(date_str or "").strip()
     try:
         if date_str:
             date.fromisoformat(date_str)  # validate
@@ -1379,3 +1420,18 @@ def route_search(payload: dict):
             results.append(best)
     results.sort(key=lambda r: (r["duration_minutes"] is None, r["duration_minutes"] or 0))
     return {"source_query": source_q, "destination_query": dest_q, "trains": results}
+
+
+@app.post("/route-search")
+def route_search(payload: dict):
+    source_q = str(payload.get("source") or "").strip()
+    dest_q = str(payload.get("destination") or "").strip()
+    if not source_q or not dest_q:
+        raise HTTPException(status_code=400, detail="Both source and destination are required.")
+    src = [m["code"] for m in resolve_stations(source_q)["matches"]]
+    dst = [m["code"] for m in resolve_stations(dest_q)["matches"]]
+    if not src or not dst:
+        raise HTTPException(status_code=404, detail="Could not resolve source or destination.")
+    travel_class = str(payload.get("travelClass") or "SL").strip().upper() or "SL"
+    date_str = str(payload.get("date") or "").strip() or None
+    return _route_search_core(source_q, dest_q, travel_class, date_str)

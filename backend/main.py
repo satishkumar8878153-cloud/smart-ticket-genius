@@ -368,7 +368,7 @@ def my_trips():
             if len(batch) < 1000:
                 break
             offset += 1000
-    except Exception as exp:
+    except Exception as exc:
         log.exception("my_trips | fetch bookings failed: %s", exc)
         raise HTTPException(status_code=503, detail="Could not load bookings.")
     trips = []

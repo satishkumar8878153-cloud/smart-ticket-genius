@@ -8,7 +8,6 @@ import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommenda
 import { ClassMatrix } from "@/components/smart-ticket/ClassMatrix";
 import { SearchForm } from "@/components/smart-ticket/SearchForm";
 import { MissionChat } from "@/components/smart-ticket/MissionChat";
-import { MyTrips } from "@/components/smart-ticket/MyTrips";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
 import type { SearchQuery, SearchResult, TicketClass } from "@/lib/mock-data";
 import { searchTrains } from "@/services/search.service";
@@ -41,7 +40,6 @@ function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [missionOpen, setMissionOpen] = useState(false);
-  const [tripsPrefill, setTripsPrefill] = useState<{ source: string; destination: string } | null>(null);
   const autoRan = useRef<string | null>(null);
 
   const handleSearch = useCallback(async function handleSearch(query: SearchQuery) {
@@ -82,7 +80,7 @@ function Home() {
 
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background pb-24 text-foreground">
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-32 top-0 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute right-0 top-40 h-96 w-96 rounded-full bg-[color:var(--primary-glow)]/10 blur-3xl" />
@@ -145,28 +143,7 @@ function Home() {
           </button>
         </section>
 
-        <div id="search-form-anchor" />
-        <SearchForm
-          onSearch={handleSearch}
-          loading={loading}
-          initialQuery={
-            tripsPrefill
-              ? {
-                  source: tripsPrefill.source,
-                  destination: tripsPrefill.destination,
-                  date: new Date().toISOString().slice(0, 10),
-                  travelClass: "SL",
-                }
-              : prefill
-          }
-        />
-
-        <MyTrips
-          onSeeAlternatives={(from, to) => {
-            setTripsPrefill({ source: from, destination: to });
-            document.getElementById("search-form-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }}
-        />
+        <SearchForm onSearch={handleSearch} loading={loading} initialQuery={prefill} />
 
         {error && (
           <div className="mt-6 flex items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">

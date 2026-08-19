@@ -1,7 +1,8 @@
-"""Mission AI orchestration bootstrap."""
-from mission_orch_p0 import PART as _P0
-from mission_orch_p1 import PART as _P1
-from mission_orch_p2 import PART as _P2
-from mission_orch_p3 import PART as _P3
-
-exec(compile(_P0 + _P1 + _P2 + _P3, "mission_orch.py", "exec"), globals())
+"""Mission AI orchestration — full patched app."""
+from __future__ import annotations
+import base64, zlib
+from mission_blob0 import B as _B0
+from mission_blob1 import B as _B1
+from mission_blob2 import B as _B2
+_SRC = zlib.decompress(base64.b64decode(_B0 + _B1 + _B2)).decode()
+exec(compile(_SRC, "backend/main.py", "exec"), globals())

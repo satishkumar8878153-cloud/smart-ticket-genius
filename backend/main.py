@@ -1,4 +1,3 @@
 """Smart Ticket AI FastAPI entrypoint."""
-from mission_orch import bootstrap
-
-bootstrap()
+import mission_orch
+app = mission_orch.app

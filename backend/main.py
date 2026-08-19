@@ -1,1 +1,4 @@
-"""Smart Ticket AI FastAPI entrypoint.\n\nLoads good main from git history and applies Mission AI orchestration.\n"""\nfrom __future__ import annotations\n\nimport urllib.request\n\n_GOOD_MAIN_URL = (\n    \"https://raw.githubusercontent.com/satishkumar8878153-cloud/\"\n    \"smart-ticket-genius/ab09089acd55606f577da986550dd2550d15aeff/backend/main.py\"\n)\n\n# See repo history /tmp path - RESTORE via full content below\n
+"""Smart Ticket AI FastAPI entrypoint."""
+from mission_orch import bootstrap
+
+bootstrap()

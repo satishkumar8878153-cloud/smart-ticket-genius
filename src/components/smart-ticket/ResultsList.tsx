@@ -1,4 +1,5 @@
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import { useState } from "react";
 import type { RouteSearchResponse, RouteTrain } from "@/lib/api";
 
 function toneClass(tone?: string) {
@@ -15,6 +16,7 @@ function toneClass(tone?: string) {
 }
 
 function TrainCard({ train }: { train: RouteTrain }) {
+  const [feedback, setFeedback] = useState<string | null>(null);
   const board = train.board || { code: "?", name: "?" };
   const alight = train.alight || { code: "?", name: "?" };
   const dayPlus =
@@ -26,6 +28,24 @@ function TrainCard({ train }: { train: RouteTrain }) {
       : "duration n/a";
   const stops = train.stops_between ?? 0;
   const classes = train.classes || {};
+  const travelClass = train.requested_class?.class;
+
+  const bookOnIrctc = async () => {
+    const parts = [
+      train.train_number,
+      `${board.code} → ${alight.code}`,
+    ];
+    if (travelClass) parts.push(travelClass);
+    const summary = parts.join(" | ");
+    try {
+      await navigator.clipboard.writeText(summary);
+    } catch {
+      /* clipboard may be blocked; still open IRCTC */
+    }
+    setFeedback("Copied! Opening IRCTC…");
+    window.open("https://www.irctc.co.in/nget/train-search", "_blank", "noopener");
+    window.setTimeout(() => setFeedback(null), 2500);
+  };
 
   return (
     <div className="gradient-card rounded-2xl border border-border/60 p-4 shadow-card sm:p-5">
@@ -64,6 +84,20 @@ function TrainCard({ train }: { train: RouteTrain }) {
       {train.requested_class?.reason ? (
         <p className="mt-3 text-sm text-muted-foreground">{train.requested_class.reason}</p>
       ) : null}
+
+      <div className="mt-4">
+        <button
+          type="button"
+          onClick={() => void bookOnIrctc()}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-muted/40 sm:w-auto"
+        >
+          <ExternalLink className="h-4 w-4 shrink-0 text-indigo-400" />
+          Book on IRCTC
+        </button>
+        {feedback ? (
+          <p className="mt-2 text-xs font-medium text-emerald-400">{feedback}</p>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -102,16 +102,25 @@ function TrainCard({ train }: { train: RouteTrain }) {
   );
 }
 
+const DEFAULT_SUGGESTIONS = [
+  "Delhi to Patna",
+  "Bhagalpur to Patna",
+  "Katihar to Patna",
+  "Bengaluru to Chennai",
+];
+
 export function ResultsList({
   data,
   loading,
   error,
   onRetry,
+  onSuggestion,
 }: {
   data: RouteSearchResponse | null;
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
+  onSuggestion?: (from: string, to: string) => void;
 }) {
   if (loading) {
     return (
@@ -146,9 +155,34 @@ export function ResultsList({
   if (!data) return null;
 
   if (!data.trains || data.trains.length === 0) {
+    const n = data.tracked_trains_count ?? 0;
+    const suggestions =
+      data.suggestions && data.suggestions.length > 0
+        ? data.suggestions
+        : DEFAULT_SUGGESTIONS;
     return (
-      <div className="mt-6 rounded-2xl border border-border/60 bg-card/40 p-6 text-center text-sm text-muted-foreground">
-        No direct trains found yet — try nearby major stations.
+      <div className="mt-6 rounded-2xl border border-border/60 bg-card/40 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          No direct train in our tracked network yet
+          {n > 0 ? ` (we track ${n} trains today)` : ""}. Try one of these routes:
+        </p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {suggestions.map((s) => {
+            const parts = s.split(/\s+to\s+/i);
+            const from = parts[0]?.trim() || s;
+            const to = parts[1]?.trim() || "";
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onSuggestion?.(from, to)}
+                className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-300 transition hover:bg-indigo-500/20"
+              >
+                {s}
+              </button>
+            );
+          })}
+        </div>
       </div>
     );
   }

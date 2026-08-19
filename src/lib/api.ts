@@ -98,3 +98,42 @@ export async function askMission(message: string): Promise<ChatResponse> {
   }
   return (await res.json()) as ChatResponse;
 }
+
+export type TripRisk = {
+  score: number;
+  reason: string;
+};
+
+export type Trip = {
+  id?: string | number | null;
+  pnr?: string | null;
+  train_number: string;
+  train_name?: string | null;
+  class_code?: string | null;
+  quota?: string | null;
+  journey_date?: string | null;
+  boarding_code?: string | null;
+  destination_code?: string | null;
+  passengers?: number | null;
+  current_status?: string | null;
+  risk?: TripRisk | null;
+};
+
+export type MyTripsResponse = {
+  trips: Trip[];
+};
+
+export async function myTrips(): Promise<MyTripsResponse> {
+  const res = await fetch(`${API_BASE}/my-trips`);
+  if (!res.ok) {
+    let detail = `My trips failed (${res.status})`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as MyTripsResponse;
+}

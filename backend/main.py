@@ -340,7 +340,7 @@ _CHAT_BLOCK = r"""
             pass
         return {"reply": empty_reply, "result": route_result}
     except Exception as exc:
-        log.exception("chat | route-search path failed: %s", exp)
+        log.exception("chat | route-search path failed: %s", exc)
 """
 
 _MY_TRIPS = r"""
@@ -368,7 +368,7 @@ def my_trips():
             if len(batch) < 1000:
                 break
             offset += 1000
-    except Exception as exc:
+    except Exception as exp:
         log.exception("my_trips | fetch bookings failed: %s", exc)
         raise HTTPException(status_code=503, detail="Could not load bookings.")
     trips = []

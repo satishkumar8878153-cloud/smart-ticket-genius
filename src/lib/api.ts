@@ -39,6 +39,11 @@ export type RouteSearchResponse = {
   trains: RouteTrain[];
 };
 
+export type ChatResponse = {
+  reply: string;
+  result?: RouteSearchResponse | null;
+};
+
 export async function resolveStations(q: string): Promise<StationMatch[]> {
   const query = (q || "").trim();
   if (!query) return [];
@@ -73,4 +78,23 @@ export async function routeSearch(payload: {
     throw new Error(detail);
   }
   return (await res.json()) as RouteSearchResponse;
+}
+
+export async function askMission(message: string): Promise<ChatResponse> {
+  const res = await fetch(`${API_BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) {
+    let detail = `Chat failed (${res.status})`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as ChatResponse;
 }

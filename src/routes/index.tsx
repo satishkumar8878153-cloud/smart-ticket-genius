@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { AlertCircle, LayoutGrid, Loader2, MessageSquare, Route as RouteIcon, ShieldCheck, Sparkles, Train } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
@@ -7,6 +7,7 @@ import { AlternateStations } from "@/components/smart-ticket/AlternateStations";
 import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommendationCard";
 import { ClassMatrix } from "@/components/smart-ticket/ClassMatrix";
 import { SearchForm } from "@/components/smart-ticket/SearchForm";
+import { MissionChat } from "@/components/smart-ticket/MissionChat";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
 import type { SearchQuery, SearchResult, TicketClass } from "@/lib/mock-data";
 import { searchTrains } from "@/services/search.service";
@@ -38,6 +39,7 @@ function Home() {
   const [mission, setMission] = useState<MissionConfirmResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missionOpen, setMissionOpen] = useState(false);
   const autoRan = useRef<string | null>(null);
 
   const handleSearch = useCallback(async function handleSearch(query: SearchQuery) {
@@ -131,13 +133,14 @@ function Home() {
               <span className="ml-1.5 text-sm text-muted-foreground">real booking outcomes</span>
             </div>
           </div>
-          <Link
-            to="/chat"
+          <button
+            type="button"
+            onClick={() => setMissionOpen(true)}
             className="gradient-primary mt-6 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-full px-10 py-4 text-lg font-semibold text-primary-foreground shadow-lg shadow-indigo-500/40 transition-transform hover:scale-105 sm:w-auto"
           >
             <MessageSquare className="h-5 w-5" />
             Ask Mission AI
-          </Link>
+          </button>
         </section>
 
         <SearchForm onSearch={handleSearch} loading={loading} initialQuery={prefill} />
@@ -210,6 +213,8 @@ function Home() {
           IRCTC booking history
         </footer>
       </main>
+
+      <MissionChat open={missionOpen} onOpenChange={setMissionOpen} />
     </div>
   );
 }

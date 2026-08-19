@@ -1,6 +1,7 @@
 """Smart Ticket AI FastAPI entrypoint.
 
-Restores full application from last good git revision and adds /my-trips.
+Loads last good implementation from git history, applies empty-state
+patches, and registers /my-trips.
 """
 from __future__ import annotations
 
@@ -9,6 +10,11 @@ import urllib.request
 _GOOD_MAIN_URL = (
     "https://raw.githubusercontent.com/satishkumar8878153-cloud/"
     "smart-ticket-genius/ab09089acd55606f577da986550dd2550d15aeff/backend/main.py"
+)
+
+_SUGGESTIONS = (
+    '["Delhi to Patna", "Bhagalpur to Patna", '
+    '"Katihar to Patna", "Bengaluru to Chennai"]'
 )
 
 _MY_TRIPS = r"""
@@ -78,11 +84,79 @@ def my_trips():
     return {"trips": trips}
 """
 
+
+def _apply_empty_state_patches(src: str) -> str:
+    early_old = (
+        '    if not src or not dst:\n'
+        '        return {"source_query": source_q, "destination_query": dest_q, "trains": []}'
+    )
+    early_new = (
+        "    if not src or not dst:\n"
+        "        return {\n"
+        '            "source_query": source_q,\n'
+        '            "destination_query": dest_q,\n'
+        '            "trains": [],\n'
+        f'            "suggestions": {_SUGGESTIONS},\n'
+        '            "tracked_trains_count": 0,\n'
+        "        }"
+    )
+    if early_old in src:
+        src = src.replace(early_old, early_new, 1)
+
+    final_old = (
+        '    results.sort(key=lambda r: (r["duration_minutes"] is None, r["duration_minutes"] or 0))\n'
+        '    return {"source_query": source_q, "destination_query": dest_q, "trains": results}'
+    )
+    final_new = (
+        '    results.sort(key=lambda r: (r["duration_minutes"] is None, r["duration_minutes"] or 0))\n'
+        '    out = {"source_query": source_q, "destination_query": dest_q, "trains": results}\n'
+        "    if not results:\n"
+        f'        out["suggestions"] = {_SUGGESTIONS}\n'
+        '        out["tracked_trains_count"] = len(trains)\n'
+        "    return out"
+    )
+    if final_old in src:
+        src = src.replace(final_old, final_new, 1)
+
+    chat_old = (
+        '        route_result = _route_search_core(\n'
+        '            intent["source"],\n'
+        '            intent["destination"],\n'
+        '            intent.get("travelClass") or "SL",\n'
+        '            intent.get("date"),\n'
+        "        )\n"
+        '        if route_result.get("trains"):'
+    )
+    chat_new = (
+        '        route_result = _route_search_core(\n'
+        '            intent["source"],\n'
+        '            intent["destination"],\n'
+        '            intent.get("travelClass") or "SL",\n'
+        '            intent.get("date"),\n'
+        "        )\n"
+        '        if not route_result.get("trains"):\n'
+        '            n = route_result.get("tracked_trains_count") or 0\n'
+        "            reply = (\n"
+        '                f"No direct train in our tracked network yet (we track {n} trains today). "\n'
+        '                "Try: Delhi to Patna, Bhagalpur to Patna, Katihar to Patna, or "\n'
+        '                "Bengaluru to Chennai."\n'
+        "            )\n"
+        '            return {"reply": reply, "result": route_result}\n'
+        '        if route_result.get("trains"):'
+    )
+    if chat_old in src:
+        src = src.replace(chat_old, chat_new, 1)
+
+    if '@app.get("/my-trips")' not in src:
+        src = src.rstrip() + "\n" + _MY_TRIPS
+    return src
+
+
 def _bootstrap():
     with urllib.request.urlopen(_GOOD_MAIN_URL, timeout=60) as resp:
         src = resp.read().decode("utf-8")
-    if '@app.get("/my-trips")' not in src:
-        src = src.rstrip() + "\n" + _MY_TRIPS
+    src = _apply_empty_state_patches(src)
     exec(compile(src, "backend/main.py", "exec"), globals())
+
 
 _bootstrap()

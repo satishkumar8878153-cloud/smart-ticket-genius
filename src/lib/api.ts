@@ -37,6 +37,8 @@ export type RouteSearchResponse = {
   source_query?: string;
   destination_query?: string;
   trains: RouteTrain[];
+  suggestions?: string[];
+  tracked_trains_count?: number;
 };
 
 export type ChatResponse = {

@@ -296,6 +296,27 @@ export function SearchForm({
         loading={routeLoading}
         error={routeError}
         onRetry={() => void runRouteSearch()}
+        onSuggestion={(from, to) => {
+          setSource(from);
+          setDestination(to);
+          window.setTimeout(() => {
+            void (async () => {
+              const payload = { source: from, destination: to, date, travelClass };
+              lastPayload.current = payload;
+              setRouteLoading(true);
+              setRouteError(null);
+              try {
+                const data = await routeSearch(payload);
+                setRouteData(data);
+              } catch (err) {
+                setRouteData(null);
+                setRouteError(err instanceof Error ? err.message : "Search failed");
+              } finally {
+                setRouteLoading(false);
+              }
+            })();
+          }, 0);
+        }}
       />
     </div>
   );

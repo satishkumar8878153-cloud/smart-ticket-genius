@@ -1,49 +1,88 @@
-import os
-import logging
-import traceback
-from datetime import date, timedelta
+"""Smart Ticket AI FastAPI entrypoint.
 
-from fastapi import FastAPI, HTTPException, Request, Header
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+Restores full application from last good git revision and adds /my-trips.
+"""
+from __future__ import annotations
 
-from models import (
-    SearchQuery,
-    SearchResult,
-    TrainRecommendation,
-    AlternateStation,
-    AlternateDate,
-    SeatStatus,
-    ALL_CLASSES,
+import urllib.request
+
+_GOOD_MAIN_URL = (
+    "https://raw.githubusercontent.com/satishkumar8878153-cloud/"
+    "smart-ticket-genius/ab09089acd55606f577da986550dd2550d15aeff/backend/main.py"
 )
-from prediction import heuristic_confirmation_score, recommendation_score
-from db import fetch_trains_for_route, fetch_pnr_stats, fetch_stations
-from irctc_provider import search_stations
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
-log = logging.getLogger("smart-ticket-ai")
-app = FastAPI(title="Smart Ticket AI — Phase 1 API")
-TRAIN_STOPS_ADMIN_TOKEN = os.environ.get("TRAIN_STOPS_ADMIN_TOKEN", "")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_MY_TRIPS = r"""
+@app.get("/my-trips")
+def my_trips():
+    from db import get_client
+    try:
+        client = get_client()
+    except Exception as exc:
+        log.exception("my_trips | get_client failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Database temporarily unreachable.")
+    rows = []
+    offset = 0
+    try:
+        while True:
+            resp = (
+                client.table("bookings")
+                .select("*")
+                .order("journey_date", desc=False)
+                .range(offset, offset + 999)
+                .execute()
+            )
+            batch = resp.data or []
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+    except Exception as exc:
+        log.exception("my_trips | fetch bookings failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Could not load bookings.")
+    trips = []
+    for r in rows:
+        train_number = str(r.get("train_number") or "").strip()
+        class_code = str(r.get("class_code") or r.get("travel_class") or "SL").strip().upper() or "SL"
+        journey_date = str(r.get("journey_date") or "").strip()
+        if journey_date and "T" in journey_date:
+            journey_date = journey_date.split("T")[0]
+        try:
+            if journey_date:
+                date.fromisoformat(journey_date)
+            else:
+                journey_date = date.today().isoformat()
+        except ValueError:
+            journey_date = date.today().isoformat()
+        days_before = _days_before(journey_date)
+        try:
+            score, reason = _confirmation_score_and_reason(
+                train_number, class_code, journey_date, days_before
+            )
+        except Exception as exc:
+            log.exception("my_trips | risk score failed for %s: %s", train_number, exc)
+            score, reason = 50, "Risk estimate unavailable right now."
+        trips.append({
+            "id": r.get("id"),
+            "pnr": r.get("pnr"),
+            "train_number": train_number,
+            "train_name": r.get("train_name") or train_number,
+            "class_code": class_code,
+            "quota": r.get("quota") or "GN",
+            "journey_date": journey_date,
+            "boarding_code": r.get("boarding_code") or r.get("from_code") or r.get("source_code"),
+            "destination_code": r.get("destination_code") or r.get("to_code"),
+            "passengers": r.get("passengers") if r.get("passengers") is not None else r.get("pax"),
+            "current_status": r.get("current_status") or r.get("status") or "UNKNOWN",
+            "risk": {"score": score, "reason": reason},
+        })
+    return {"trips": trips}
+"""
 
-@app.on_event("startup")
-def _startup_check() -> None:
-    from db import SUPABASE_URL, SUPABASE_KEY
-    log.info("startup | supabase_url=%s supabase_key=%s", "set" if SUPABASE_URL else "MISSING", "set" if SUPABASE_KEY else "MISSING")
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        log.error("Database credentials are missing — /stations and /search will return empty results. Set SUPABASE_URL and SUPABASE_KEY.")
+def _bootstrap():
+    with urllib.request.urlopen(_GOOD_MAIN_URL, timeout=60) as resp:
+        src = resp.read().decode("utf-8")
+    if '@app.get("/my-trips")' not in src:
+        src = src.rstrip() + "\n" + _MY_TRIPS
+    exec(compile(src, "backend/main.py", "exec"), globals())
 
-@app.middleware("http")
-async def request_logger(request: Request, call_next):
-    log.info("--> %s %s", request.method, request.url.path)
-    response = await call_next(request)
-    log.info("<-- %s %s %s", request.method, request.url.path, response.status_code)
-    return response
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    log.error("Unhandled error on %s", request.url.path)
-    traceback.print_exc()
-    return JSONResponse(status_code=500, content={"detail": f"Internal error in {request.url.path}: {exc}"}, headers={"Access-Control-Allow-Origin": "*"})
-
-# NOTE: Full file restore incomplete - SEE EMERGENCY
+_bootstrap()

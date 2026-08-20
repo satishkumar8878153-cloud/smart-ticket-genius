@@ -1,4 +1,4 @@
-import { ArrowRightLeft, CalendarDays, Loader2, MapPin, Search, Sparkles } from "lucide-react";
+import { ArrowRightLeft, CalendarDays, Clock, Loader2, MapPin, Search } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,9 +10,66 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CLASSES, type SearchQuery, type TicketClass } from "@/lib/mock-data";
-import { resolveStations, routeSearch, type RouteSearchResponse, type StationMatch } from "@/lib/api";
+import type { SearchQuery, TicketClass } from "@/lib/mock-data";
+import {
+  resolveStations,
+  routeSearch,
+  type RouteSearchResponse,
+  type StationMatch,
+} from "@/lib/api";
 import { ResultsList } from "@/components/smart-ticket/ResultsList";
+
+const CLASS_OPTIONS: { code: string; label: string }[] = [
+  { code: "ALL", label: "All classes" },
+  { code: "SL", label: "Sleeper" },
+  { code: "3A", label: "AC 3-Tier" },
+  { code: "2A", label: "AC 2-Tier" },
+  { code: "1A", label: "AC First" },
+  { code: "CC", label: "Chair Car" },
+  { code: "EC", label: "Executive" },
+];
+
+const RECENT_KEY = "stg_recent_searches_v1";
+const MAX_RECENT = 5;
+
+type RecentItem = {
+  from: string;
+  to: string;
+  date: string;
+  classCode: string;
+};
+
+function loadRecent(): RecentItem[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as RecentItem[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x) => x && typeof x.from === "string" && typeof x.to === "string")
+      .slice(0, MAX_RECENT);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(item: RecentItem) {
+  try {
+    const prev = loadRecent().filter(
+      (r) =>
+        !(
+          r.from === item.from &&
+          r.to === item.to &&
+          r.date === item.date &&
+          r.classCode === item.classCode
+        ),
+    );
+    const next = [item, ...prev].slice(0, MAX_RECENT);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore quota */
+  }
+}
 
 function StationAutocomplete({
   id,
@@ -118,15 +175,19 @@ function StationAutocomplete({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(m)}
-                className={`flex w-full flex-col rounded-lg px-3 py-2 text-left text-sm ${
+                className={`flex w-full flex-col rounded-lg px-3 py-2.5 text-left text-sm ${
                   i === highlight ? "bg-indigo-500/15 text-foreground" : "hover:bg-muted/50"
                 }`}
               >
-                <span className="font-medium">{m.name || m.code}</span>
-                <span className="text-xs text-muted-foreground">
-                  {m.code}
-                  {m.city ? ` · ${m.city}` : ""}
+                <span className="font-medium">
+                  {m.name || m.code}
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    ({m.code})
+                  </span>
                 </span>
+                {m.city ? (
+                  <span className="text-xs text-muted-foreground">{m.city}</span>
+                ) : null}
               </button>
             </li>
           ))}
@@ -150,18 +211,15 @@ export function SearchForm({
   const [date, setDate] = useState(
     () => initialQuery?.date ?? new Date().toISOString().slice(0, 10),
   );
-  const [travelClass, setTravelClass] = useState<TicketClass>(
-    initialQuery?.travelClass ?? "3A",
-  );
+  const [travelClass, setTravelClass] = useState<string>(initialQuery?.travelClass ?? "ALL");
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeData, setRouteData] = useState<RouteSearchResponse | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
-  const lastPayload = useRef<{
-    source: string;
-    destination: string;
-    date?: string;
-    travelClass?: string;
-  } | null>(null);
+  const [recent, setRecent] = useState<RecentItem[]>([]);
+
+  useEffect(() => {
+    setRecent(loadRecent());
+  }, []);
 
   useEffect(() => {
     if (!initialQuery) return;
@@ -181,51 +239,71 @@ export function SearchForm({
     setDestination(source);
   };
 
-  const runRouteSearch = useCallback(async () => {
-    if (!source || !destination) return;
-    const payload = {
-      source,
-      destination,
-      date,
-      travelClass,
-    };
-    lastPayload.current = payload;
-    setRouteLoading(true);
-    setRouteError(null);
-    try {
-      const data = await routeSearch(payload);
-      setRouteData(data);
-    } catch (err) {
-      setRouteData(null);
-      setRouteError(err instanceof Error ? err.message : "Search failed");
-    } finally {
-      setRouteLoading(false);
-    }
-  }, [source, destination, date, travelClass]);
+  const runRouteSearch = useCallback(
+    async (override?: {
+      source?: string;
+      destination?: string;
+      date?: string;
+      classCode?: string;
+    }) => {
+      const src = (override?.source ?? source).trim();
+      const dst = (override?.destination ?? destination).trim();
+      const d = override?.date ?? date;
+      const cls = override?.classCode ?? travelClass;
+      if (!src || !dst) return;
+
+      const apiClass = cls === "ALL" ? "SL" : cls;
+      setRouteLoading(true);
+      setRouteError(null);
+      try {
+        const data = await routeSearch({
+          source: src,
+          destination: dst,
+          date: d,
+          travelClass: apiClass,
+        });
+        setRouteData(data);
+        const item: RecentItem = {
+          from: src,
+          to: dst,
+          date: d,
+          classCode: cls,
+        };
+        saveRecent(item);
+        setRecent(loadRecent());
+        onSearch?.({
+          source: src,
+          destination: dst,
+          date: d,
+          travelClass: (apiClass as TicketClass) || "SL",
+        });
+      } catch {
+        setRouteData(null);
+        setRouteError("Unable to search trains right now.");
+      } finally {
+        setRouteLoading(false);
+      }
+    },
+    [source, destination, date, travelClass, onSearch],
+  );
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!source || !destination || routeLoading || externalLoading) return;
+    if (!source.trim() || !destination.trim() || routeLoading || externalLoading) return;
     void runRouteSearch();
-    onSearch?.({ source, destination, date, travelClass });
   };
 
   const busy = routeLoading || externalLoading;
 
   return (
-    <div>
+    <div className="w-full max-w-full">
       <form
         onSubmit={submit}
-        className="gradient-card relative overflow-hidden rounded-3xl border border-border/60 p-5 shadow-elegant sm:p-6"
+        className="rounded-2xl border border-border/60 bg-card/50 p-4 shadow-sm sm:p-5"
       >
-        <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="h-4 w-4 text-indigo-400" />
-          <span>Search live routes from the production timetable</span>
-        </div>
-
         <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr]">
           <StationAutocomplete id="from" label="From" value={source} onChange={setSource} />
-          <div className="flex items-end justify-center pb-1">
+          <div className="flex items-end justify-center pb-0.5">
             <Button
               type="button"
               variant="outline"
@@ -264,14 +342,14 @@ export function SearchForm({
 
           <div>
             <Label className="mb-1.5 block text-xs font-medium text-muted-foreground">Class</Label>
-            <Select value={travelClass} onValueChange={(v) => setTravelClass(v as TicketClass)}>
+            <Select value={travelClass} onValueChange={setTravelClass}>
               <SelectTrigger className="h-12 min-w-0 rounded-xl border-border/60 bg-background/70 text-base font-medium">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {CLASSES.map((c) => (
+                {CLASS_OPTIONS.map((c) => (
                   <SelectItem key={c.code} value={c.code}>
-                    <span className="font-semibold">{c.code}</span>
+                    <span className="font-semibold">{c.code === "ALL" ? "All" : c.code}</span>
                     <span className="ml-2 text-muted-foreground">{c.label}</span>
                   </SelectItem>
                 ))}
@@ -282,7 +360,7 @@ export function SearchForm({
           <Button
             type="submit"
             disabled={busy}
-            className="gradient-primary h-12 rounded-xl px-6 text-base font-semibold text-primary-foreground shadow-elegant transition-transform hover:scale-[1.02] disabled:opacity-70 sm:self-end"
+            className="h-12 rounded-xl bg-indigo-600 px-6 text-base font-semibold text-white hover:bg-indigo-500 disabled:opacity-70 sm:self-end"
           >
             {busy ? (
               <>
@@ -290,12 +368,45 @@ export function SearchForm({
               </>
             ) : (
               <>
-                <Search className="mr-2 h-4 w-4" /> Search
+                <Search className="mr-2 h-4 w-4" /> Search Trains
               </>
             )}
           </Button>
         </div>
       </form>
+
+      {recent.length > 0 && !routeData && !routeLoading ? (
+        <div className="mt-4">
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Clock className="h-3.5 w-3.5" />
+            Recent searches
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {recent.map((r) => (
+              <li key={`${r.from}-${r.to}-${r.date}-${r.classCode}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSource(r.from);
+                    setDestination(r.to);
+                    setDate(r.date);
+                    setTravelClass(r.classCode);
+                    void runRouteSearch({
+                      source: r.from,
+                      destination: r.to,
+                      date: r.date,
+                      classCode: r.classCode,
+                    });
+                  }}
+                  className="min-h-9 max-w-full truncate rounded-full border border-border/60 bg-background/40 px-3 text-xs font-medium hover:bg-muted/40"
+                >
+                  {r.from} → {r.to}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <ResultsList
         data={routeData}
@@ -306,23 +417,7 @@ export function SearchForm({
         onSuggestion={(from, to) => {
           setSource(from);
           setDestination(to);
-          window.setTimeout(() => {
-            void (async () => {
-              const payload = { source: from, destination: to, date, travelClass };
-              lastPayload.current = payload;
-              setRouteLoading(true);
-              setRouteError(null);
-              try {
-                const data = await routeSearch(payload);
-                setRouteData(data);
-              } catch (err) {
-                setRouteData(null);
-                setRouteError(err instanceof Error ? err.message : "Search failed");
-              } finally {
-                setRouteLoading(false);
-              }
-            })();
-          }, 0);
+          void runRouteSearch({ source: from, destination: to });
         }}
       />
     </div>

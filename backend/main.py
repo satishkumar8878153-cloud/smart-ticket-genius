@@ -20,6 +20,7 @@ CITY_CLUSTERS = {
     "kolkata": ["HWH", "SDAH", "KOAA", "SHM"],
     "chennai": ["MAS", "MS"],
     "bengaluru": ["SBC", "BNC", "YPR"],
+    "bangalore": ["SBC", "BNC", "YPR"],
     "bhagalpur": ["BGP"],
     "katihar": ["KIR"],
     "gaya": ["GAYA"],
@@ -35,6 +36,7 @@ NEARBY_HUBS = {
     "kolkata": ["DKAE", "BDC", "KGP"],
     "chennai": ["TBM", "AJJ"],
     "bengaluru": ["KJM", "JTJ"],
+    "bangalore": ["KJM", "JTJ"],
     "bhagalpur": ["JMP", "KGG"],
     "katihar": ["KGG", "BJU"],
     "gaya": ["PNBE", "DDU"],
@@ -46,25 +48,15 @@ NEARBY_HUBS = {
 
 _HELPER_AND_CORE = r"""
 def resolve_stations(q: str = "", limit: int = 20):
-    # Resolve against production stations (DB-filtered, not first-20 only).
+    # Resolve against production stations (ranked DB search, not first-N rows).
     needle = (q or "").strip()
     if not needle:
         return {"query": q, "matches": []}
-    rows = fetch_stations(needle, limit=max(limit, 50))
-    exact_code, name_matches, city_matches = [], [], []
-    nlow = needle.lower()
+    # fetch_stations already ranks exact code/name/city before weak contains
+    rows = fetch_stations(needle, limit=max(limit, 30))
+    matches = []
+    seen = set()
     for r in rows:
-        code = str(r.get("code") or "")
-        name = str(r.get("name") or "")
-        city = str(r.get("city") or "")
-        if code.upper() == needle.upper():
-            exact_code.append(r)
-        elif nlow in name.lower() or nlow in code.lower():
-            name_matches.append(r)
-        elif city and nlow in city.lower():
-            city_matches.append(r)
-    seen, matches = set(), []
-    for r in exact_code + name_matches + city_matches:
         c = r.get("code")
         if c and c not in seen:
             seen.add(c)
@@ -120,15 +112,17 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
     else:
         journey_date = (date.today() + timedelta(days=1)).isoformat()
     days_before = _days_before(journey_date)
-    from db import get_client, fetch_train_stops_for_stations, fetch_train_names
+    from db import get_client, fetch_train_stops_for_stations, fetch_train_names, fetch_station_names_for_codes
     client = get_client()
-    needed_codes = list(dict.fromkeys(primary_s + primary_d + hubs_s + hubs_d))
+    # Phase 1: primary stations only (keeps Patna↔Delhi under control)
+    primary_codes = list(dict.fromkeys(primary_s + primary_d))
     trains = {}
-    for s in fetch_train_stops_for_stations(client, needed_codes):
+    for s in fetch_train_stops_for_stations(client, primary_codes):
         trains.setdefault(s["train_number"], {})[s["station_code"]] = s
     tracked = 5208
     train_names_map = fetch_train_names(client)
-    station_names = {r["code"]: r.get("name") for r in fetch_stations()}
+    name_codes = list(dict.fromkeys(primary_s + primary_d + hubs_s + hubs_d))
+    station_names = fetch_station_names_for_codes(client, name_codes)
 
     def _pair_candidate(train_number, stop_map, sc, dc, nearby=False, note=None):
         a = stop_map.get(sc)
@@ -191,6 +185,12 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
     expand_d = list(dict.fromkeys(primary_d + hubs_d))
     primary_pairs = {(sc, dc) for sc in primary_s for dc in primary_d}
     nearby = []
+    # Phase 2: only if no direct trains, load hub stops for nearby options
+    if not direct and (hubs_s or hubs_d):
+        hub_only = [c for c in (hubs_s + hubs_d) if c not in primary_codes]
+        if hub_only:
+            for s in fetch_train_stops_for_stations(client, hub_only + primary_codes):
+                trains.setdefault(s["train_number"], {})[s["station_code"]] = s
     for train_number, stop_map in trains.items():
         best = None
         for sc in expand_s:
@@ -341,7 +341,7 @@ def my_trips(limit: int = 20, offset: int = 0):
                 train_number, class_code, journey_date, days_before
             )
         except Exception as exc:
-            log.exception("my_trips | risk score failed for %s: %s", train_number, exc)
+            log.exception("my_trips | risk score failed for %s: %s", train_number, exp)
             score, reason = 50, "Risk estimate unavailable right now."
         trips.append({
             "id": r.get("id"),

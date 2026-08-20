@@ -1,0 +1,50 @@
+{
+  "dry_run": true,
+  "database_writes_performed": false,
+  "TRAIN_STOPS_IMPORT_ENABLED": false,
+  "source": "https://raw.githubusercontent.com/datameet/railways/master/schedules.json",
+  "station_codes_loaded": 8993,
+  "source_rows": 417080,
+  "valid_rows": 417078,
+  "rejected_rows": 2,
+  "quarantined_rows": 2,
+  "unknown_station_codes": 0,
+  "invalid_train_numbers": 0,
+  "unique_trains": 5208,
+  "unique_station_codes_in_valid": 8538,
+  "duplicate_rows_in_source": 0,
+  "existing_rows_already_present": 1065,
+  "valid_rows_matching_existing_keys": 1065,
+  "expected_rows_to_insert": 416013,
+  "expected_final_count": 417078,
+  "batch_size": 500,
+  "on_conflict": "train_number,station_code,stop_sequence (ignore_duplicates / DO NOTHING)",
+  "sample_rejected": [
+    {
+      "reason": "quarantined_station_code:P",
+      "row": {
+        "arrival": "16:33:00",
+        "day": 1,
+        "train_name": "Telibandha Rajim Passenger",
+        "station_name": "",
+        "station_code": "P",
+        "id": 141535,
+        "train_number": "58717",
+        "departure": "16:34:00"
+      }
+    },
+    {
+      "reason": "quarantined_station_code:P",
+      "row": {
+        "arrival": "10:53:00",
+        "day": 1,
+        "train_name": "RAJIM TELIBANDHA PASS",
+        "station_name": "",
+        "station_code": "P",
+        "id": 154702,
+        "train_number": "58718",
+        "departure": "10:54:00"
+      }
+    }
+  ]
+}

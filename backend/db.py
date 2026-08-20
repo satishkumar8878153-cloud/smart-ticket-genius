@@ -1,6 +1,8 @@
 import os
 from datetime import date as _date
 from supabase import create_client, Client
+import time
+from threading import Lock
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
@@ -11,6 +13,13 @@ _client: Client | None = None
 _PNR_STATS_CACHE: dict[tuple[str, str, str], tuple[float, dict | None]] = {}
 _PNR_STATS_TTL_SEC = 300.0
 _TRAIN_NAMES_CACHE: dict[str, str] | None = None
+_STOPS_CACHE: dict[str, tuple[float, list]] = {}
+_STOPS_TTL_SEC = 600.0
+_STATION_NAME_CACHE: dict[str, tuple[float, str]] = {}
+_cache_lock = Lock()
+
+_PNR_INDEX: dict[tuple[str, str], dict] | None = None
+_PNR_INDEX_LOADED_AT: float = 0.0
 
 
 STATION_ALIASES: dict[str, list[str]] = {
@@ -229,13 +238,25 @@ def fetch_train_stops_for_stations(
     station_codes: list[str] | set[str],
     page_size: int = 1000,
 ) -> list:
+    """Fetch stops for station codes with per-code TTL cache (600s).
+
+    Avoids repeat Supabase pagination for popular stations (PNBE, NDLS, …).
+    """
     codes = sorted({str(c).strip().upper() for c in station_codes if c})
     if not codes:
         return []
     all_rows: list = []
-    chunk_size = 50
-    for i in range(0, len(codes), chunk_size):
-        chunk = codes[i : i + chunk_size]
+    now = time.time()
+    missing: list[str] = []
+    with _cache_lock:
+        for code in codes:
+            hit = _STOPS_CACHE.get(code)
+            if hit and (now - hit[0]) < _STOPS_TTL_SEC:
+                all_rows.extend(hit[1])
+            else:
+                missing.append(code)
+    for code in missing:
+        rows_out: list = []
         offset = 0
         while True:
             resp = (
@@ -244,15 +265,18 @@ def fetch_train_stops_for_stations(
                     "train_number,station_code,stop_sequence,"
                     "arrival_time,departure_time,day_offset"
                 )
-                .in_("station_code", chunk)
+                .eq("station_code", code)
                 .range(offset, offset + page_size - 1)
                 .execute()
             )
-            rows = resp.data or []
-            all_rows.extend(rows)
-            if len(rows) < page_size:
+            batch = resp.data or []
+            rows_out.extend(batch)
+            if len(batch) < page_size:
                 break
             offset += page_size
+        with _cache_lock:
+            _STOPS_CACHE[code] = (time.time(), rows_out)
+        all_rows.extend(rows_out)
     return all_rows
 
 
@@ -282,13 +306,8 @@ def fetch_train_names(client) -> dict[str, str]:
     return names
 
 
-_PNR_INDEX: dict[tuple[str, str], dict] | None = None
-_PNR_INDEX_LOADED_AT: float = 0.0
-
-
 def _load_pnr_index(client) -> dict[tuple[str, str], dict]:
     """Load all verified pnr_history rows once (table is small, ~62 rows)."""
-    import time
     global _PNR_INDEX, _PNR_INDEX_LOADED_AT
     now = time.time()
     if _PNR_INDEX is not None and (now - _PNR_INDEX_LOADED_AT) < _PNR_STATS_TTL_SEC:
@@ -345,22 +364,35 @@ def fetch_pnr_stats(
 
 
 def fetch_station_names_for_codes(client, codes: list[str] | set[str]) -> dict[str, str]:
-    """Map station_code -> name for a small code set (no full-table scan)."""
+    """Map station_code -> name (TTL-cached per code)."""
     out: dict[str, str] = {}
     uniq = sorted({str(c).strip().upper() for c in codes if c})
     if not uniq:
         return out
-    for i in range(0, len(uniq), 50):
-        chunk = uniq[i : i + 50]
+    now = time.time()
+    missing: list[str] = []
+    with _cache_lock:
+        for code in uniq:
+            hit = _STATION_NAME_CACHE.get(code)
+            if hit and (now - hit[0]) < _STOPS_TTL_SEC:
+                out[code] = hit[1]
+            else:
+                missing.append(code)
+    if not missing:
+        return out
+    for i in range(0, len(missing), 50):
+        chunk = missing[i : i + 50]
         resp = (
             client.table("stations")
             .select("code,name")
             .in_("code", chunk)
             .execute()
         )
-        for r in resp.data or []:
-            code = str(r.get("code") or "").strip().upper()
-            name = (r.get("name") or "").strip()
-            if code and name:
-                out[code] = name
+        with _cache_lock:
+            for r in resp.data or []:
+                code = str(r.get("code") or "").strip().upper()
+                name = (r.get("name") or "").strip()
+                if code and name:
+                    _STATION_NAME_CACHE[code] = (time.time(), name)
+                    out[code] = name
     return out

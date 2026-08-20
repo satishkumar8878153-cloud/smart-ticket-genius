@@ -69,7 +69,7 @@ def _cluster_and_hubs(query):
     raw = (query or "").strip()
     needle = raw.lower()
     # Exact station-code query: do not expand full city cluster (major latency win)
-    is_code = 2 <= len(raw) <= 5 and raw.isalpha()
+    is_code = 2 <= len(raw) <= 5 and raw.replace(" ", "").isalnum()
     key = None
     if not is_code:
         for k in CITY_CLUSTERS:
@@ -77,9 +77,21 @@ def _cluster_and_hubs(query):
                 key = k
                 break
     primary = [m["code"] for m in resolve_stations(query)["matches"]]
+    if is_code and primary:
+        upper = raw.upper()
+        if upper in {p.upper() for p in primary}:
+            primary = [upper]
+        else:
+            primary = primary[:1]
+        return primary, []
     if key:
         primary = list(dict.fromkeys(primary + CITY_CLUSTERS[key]))
+    # Bound city expansion to keep stop loading practical on Render
+    if len(primary) > 5:
+        primary = primary[:5]
     hubs = NEARBY_HUBS.get(key, []) if key else []
+    if len(hubs) > 4:
+        hubs = hubs[:4]
     return primary, hubs
 
 
@@ -138,7 +150,6 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
         if dep is not None and arr is not None:
             day_diff = (b.get("day_offset") or 0) - (a.get("day_offset") or 0)
             dur = arr + day_diff * 1440 - dep
-        # Defer pnr_history scoring until final shortlist (avoids N sequential DB calls)
         cand = {
             "train_number": train_number,
             "train_name": train_names_map.get(train_number),
@@ -160,7 +171,7 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
             "requested_class": {
                 "class": travel_class,
                 "score": None,
-                "reason": "",
+                "reason": None,
             },
         }
         if nearby:
@@ -212,7 +223,7 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
     nearby.sort(key=lambda r: (r["duration_minutes"] is None, r["duration_minutes"] or 0))
     nearby = nearby[:3]
 
-    def _attach_scores(rows, limit=25):
+    def _attach_scores(rows, limit=15):
         for c in rows[:limit]:
             score, reason = _confirmation_score_and_reason(
                 c["train_number"], travel_class, journey_date, days_before
@@ -222,9 +233,16 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
                 "score": score,
                 "reason": reason,
             }
+        for c in rows[limit:]:
+            score = heuristic_confirmation_score(travel_class, journey_date, days_before)
+            c["requested_class"] = {
+                "class": travel_class,
+                "score": score,
+                "reason": f"{score}% estimated (not historically scored).",
+            }
         return rows
 
-    direct = _attach_scores(direct, limit=25)
+    direct = _attach_scores(direct, limit=15)
     nearby = _attach_scores(nearby, limit=5)
     candidates = direct + nearby
 

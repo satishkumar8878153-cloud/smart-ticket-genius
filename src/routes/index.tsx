@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { MessageSquare, Train } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { SearchForm } from "@/components/smart-ticket/SearchForm";
 import { MissionChat } from "@/components/smart-ticket/MissionChat";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
@@ -37,10 +37,6 @@ function Home() {
     };
   }, [from, to, date, cls]);
 
-  useEffect(() => {
-    // Prefetch nothing — keep homepage light
-  }, []);
-
   return (
     <div className="min-h-screen overflow-x-hidden bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/90 backdrop-blur-md">
@@ -49,17 +45,7 @@ function Home() {
             <Train className="h-5 w-5 text-indigo-400" />
             <span className="text-base font-semibold tracking-tight">Smart Ticket Genius</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setMissionOpen(true)}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-border/60 bg-background/50 px-3 text-xs font-medium hover:bg-muted/40"
-            >
-              <MessageSquare className="h-3.5 w-3.5 text-indigo-400" />
-              Mission AI
-            </button>
-            <ThemeToggle />
-          </div>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -72,6 +58,15 @@ function Home() {
             Search the timetable across 8,993 stations and 5,208 trains. Live seat availability is
             not connected yet.
           </p>
+
+          <button
+            type="button"
+            onClick={() => setMissionOpen(true)}
+            className="mt-6 inline-flex w-full max-w-md items-center justify-center gap-2 rounded-full bg-indigo-600 px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-500 hover:scale-[1.02] sm:w-auto"
+          >
+            <MessageSquare className="h-5 w-5" />
+            Ask Mission AI
+          </button>
         </section>
 
         <section className="mt-8">

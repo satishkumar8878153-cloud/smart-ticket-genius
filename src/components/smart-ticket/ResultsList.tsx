@@ -1,5 +1,5 @@
-import { AlertCircle, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertCircle, Loader2, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { RouteSearchResponse, RouteTrain } from "@/lib/api";
 import { TrainResultCard } from "@/components/TrainResultCard";
 import { cn } from "@/lib/utils";
@@ -11,9 +11,9 @@ const DEFAULT_SUGGESTIONS = [
   "Bengaluru to Chennai",
 ];
 
-const CLASS_FILTERS = ["All", "SL", "3A", "2A", "1A"] as const;
+const CLASS_FILTERS = ["All", "SL", "3A", "2A", "1A", "CC", "EC"] as const;
 type ClassFilter = (typeof CLASS_FILTERS)[number];
-type SortKey = "recommended" | "departure" | "duration" | "confirmation";
+type SortKey = "recommended" | "departure" | "duration" | "least_stops";
 
 const PAGE_SIZE = 10;
 
@@ -42,30 +42,42 @@ function formatJourneyDate(iso?: string | null): string | null {
   }
 }
 
-function collectTrains(data: RouteSearchResponse | null): RouteTrain[] {
-  if (!data) return [];
+function collectTrains(data: RouteSearchResponse | null): {
+  trains: RouteTrain[];
+  isNearbyOnly: boolean;
+} {
+  if (!data) return { trains: [], isNearbyOnly: false };
   const direct = data.direct_trains?.length ? data.direct_trains : data.trains || [];
   const nearby = data.nearby_options || [];
-  if (direct.length > 0) return direct;
-  return nearby;
+  if (direct.length > 0) return { trains: direct, isNearbyOnly: false };
+  return { trains: nearby, isNearbyOnly: nearby.length > 0 };
 }
 
 function SkeletonCard() {
   return (
     <div className="animate-pulse rounded-2xl border border-border/60 bg-card/40 p-4 sm:p-5">
-      <div className="h-5 w-24 rounded bg-muted/50" />
+      <div className="h-5 w-28 rounded bg-muted/50" />
+      <div className="mt-1 h-3 w-40 rounded bg-muted/30" />
       <div className="mt-4 grid grid-cols-3 gap-3">
-        <div className="h-12 rounded bg-muted/40" />
+        <div className="h-14 rounded bg-muted/40" />
         <div className="h-4 self-center rounded bg-muted/30" />
-        <div className="h-12 rounded bg-muted/40" />
+        <div className="h-14 rounded bg-muted/40" />
       </div>
-      <div className="mt-3 h-4 w-40 rounded bg-muted/40" />
+      <div className="mt-3 h-4 w-36 rounded bg-muted/40" />
       <div className="mt-3 flex gap-2">
-        <div className="h-6 w-16 rounded-full bg-muted/40" />
-        <div className="h-6 w-16 rounded-full bg-muted/40" />
+        <div className="h-6 w-14 rounded-full bg-muted/40" />
+        <div className="h-6 w-14 rounded-full bg-muted/40" />
       </div>
     </div>
   );
+}
+
+function parseSuggestion(s: string): { from: string; to: string } | null {
+  const parts = s.split(/\s+to\s+/i);
+  if (parts.length >= 2) {
+    return { from: parts[0].trim(), to: parts.slice(1).join(" to ").trim() };
+  }
+  return null;
 }
 
 export function ResultsList({
@@ -89,8 +101,14 @@ export function ResultsList({
   const [sortKey, setSortKey] = useState<SortKey>("recommended");
   const [visible, setVisible] = useState(PAGE_SIZE);
 
-  const trains = useMemo(() => collectTrains(data), [data]);
+  const { trains, isNearbyOnly } = useMemo(() => collectTrains(data), [data]);
   const recommendedNumber = data?.recommendation?.train_number;
+
+  useEffect(() => {
+    setVisible(PAGE_SIZE);
+    setClassFilter("All");
+    setSortKey("recommended");
+  }, [data]);
 
   const filtered = useMemo(() => {
     let list = [...trains];
@@ -108,20 +126,16 @@ export function ResultsList({
         return ta - tb;
       }
       if (sortKey === "duration") {
-        const da = a.duration_minutes ?? 999999;
-        const db = b.duration_minutes ?? 999999;
-        return da - db;
+        return (a.duration_minutes ?? 999999) - (b.duration_minutes ?? 999999);
       }
-      if (sortKey === "confirmation") {
-        const sa = a.requested_class?.score ?? -1;
-        const sb = b.requested_class?.score ?? -1;
-        return sb - sa;
+      if (sortKey === "least_stops") {
+        return (a.stops_between ?? 999) - (b.stops_between ?? 999);
       }
       if (recommendedNumber) {
         if (a.train_number === recommendedNumber) return -1;
         if (b.train_number === recommendedNumber) return 1;
       }
-      return 0;
+      return (a.duration_minutes ?? 999999) - (b.duration_minutes ?? 999999);
     });
     return list;
   }, [trains, classFilter, sortKey, recommendedNumber]);
@@ -129,113 +143,163 @@ export function ResultsList({
   const shown = filtered.slice(0, visible);
   const hasMore = filtered.length > visible;
 
+  const earliestNumber = useMemo(() => {
+    if (trains.length === 0) return null;
+    let best: RouteTrain | null = null;
+    for (const t of trains) {
+      const m = parseTimeToMinutes(t.board?.departure);
+      if (m == null) continue;
+      const bm = best ? parseTimeToMinutes(best.board?.departure) : null;
+      if (best == null || (bm != null && m < bm)) best = t;
+    }
+    return best?.train_number ?? null;
+  }, [trains]);
+
+  const fastestNumber = useMemo(() => {
+    if (trains.length === 0) return null;
+    let best: RouteTrain | null = null;
+    for (const t of trains) {
+      if (t.duration_minutes == null) continue;
+      if (best == null || t.duration_minutes < (best.duration_minutes ?? 999999)) best = t;
+    }
+    return best?.train_number ?? null;
+  }, [trains]);
+
+  function rankLabelFor(t: RouteTrain): string | null {
+    if (recommendedNumber && t.train_number === recommendedNumber) return null;
+    if (fastestNumber && t.train_number === fastestNumber) return "Shortest";
+    if (earliestNumber && t.train_number === earliestNumber) return "Earliest";
+    return null;
+  }
+
   if (loading) {
     return (
-      <div className="mt-6 space-y-3">
+      <div className={cn("space-y-3", compact ? "mt-2" : "mt-6")}>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          Searching live routes…
+          Searching trains…
         </div>
         <SkeletonCard />
         <SkeletonCard />
-        <SkeletonCard />
+        {!compact ? <SkeletonCard /> : null}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="mt-6 flex items-start gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold text-destructive">Search failed</div>
-          <p className="mt-0.5 text-muted-foreground">{error}</p>
-          <p className="mt-1 text-muted-foreground">Please try again.</p>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="mt-3 inline-flex min-h-10 items-center rounded-xl border border-border/60 bg-background/50 px-4 text-sm font-medium hover:bg-muted/40"
-            >
-              Retry
-            </button>
-          ) : null}
+      <div
+        className={cn(
+          "flex flex-col gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-4 text-sm",
+          compact ? "mt-2" : "mt-6",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">Unable to search trains right now.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Please try again in a moment.</p>
+          </div>
         </div>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-border/60 bg-background/50 text-sm font-medium hover:bg-muted/40 sm:w-auto sm:px-4"
+          >
+            Retry
+          </button>
+        ) : null}
       </div>
     );
   }
 
   if (!data) return null;
 
-  const suggestions = data.suggestions?.length ? data.suggestions : DEFAULT_SUGGESTIONS;
-  const src = data.source_query;
-  const dst = data.destination_query;
+  const suggestions =
+    data.suggestions && data.suggestions.length > 0 ? data.suggestions : DEFAULT_SUGGESTIONS;
   const dateLabel = formatJourneyDate(journeyDate);
+  const src = data.source_query || "";
+  const dst = data.destination_query || "";
 
   if (trains.length === 0) {
     return (
-      <div className="mt-6 space-y-4">
-        {(src || dst) && (
-          <div className="text-sm text-muted-foreground">
-            {src && dst ? (
-              <span className="font-medium text-foreground">
-                {src} → {dst}
-              </span>
-            ) : null}
-            {dateLabel ? <span className="ml-2">· {dateLabel}</span> : null}
-          </div>
+      <div
+        className={cn(
+          "rounded-2xl border border-border/60 bg-card/40 p-5",
+          compact ? "mt-2" : "mt-6",
         )}
-        <div className="rounded-2xl border border-border/60 bg-card/40 p-6 text-center">
-          <p className="text-sm font-medium">No direct trains found yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Try nearby major stations, or one of these routes:
-          </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {suggestions.map((s) => {
-              const [from, to] = s.split(/\s+to\s+/i);
-              return (
+      >
+        <p className="text-base font-semibold text-foreground">No direct trains found.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {src && dst
+            ? `We could not find a direct train for ${src} → ${dst} in the timetable.`
+            : "Try a different pair of stations or date."}
+        </p>
+        <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Try nearby major stations
+        </p>
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {suggestions.map((s) => {
+            const parsed = parseSuggestion(s);
+            return (
+              <li key={s}>
                 <button
-                  key={s}
                   type="button"
-                  onClick={() => onSuggestion?.(from?.trim() || s, to?.trim() || "")}
-                  className="rounded-full border border-border/60 bg-background/40 px-3 py-1.5 text-xs font-medium hover:bg-muted/40"
+                  disabled={!onSuggestion || !parsed}
+                  onClick={() => {
+                    if (parsed && onSuggestion) onSuggestion(parsed.from, parsed.to);
+                  }}
+                  className="min-h-9 rounded-full border border-border/60 bg-background/50 px-3 text-xs font-medium hover:bg-muted/40 disabled:opacity-50"
                 >
                   {s}
                 </button>
-              );
-            })}
-          </div>
-        </div>
+              </li>
+            );
+          })}
+        </ul>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 text-sm font-medium hover:bg-muted/40"
+          >
+            <Search className="h-4 w-4" />
+            Search Again
+          </button>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div className={cn("mt-6 space-y-4", compact && "mt-2 space-y-3")}>
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="min-w-0">
-          {src && dst ? (
-            <h2 className="truncate text-base font-semibold sm:text-lg">
-              {src} → {dst}
-            </h2>
-          ) : (
-            <h2 className="text-base font-semibold sm:text-lg">Search results</h2>
-          )}
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {filtered.length} {filtered.length === 1 ? "train" : "trains"} found
-            {dateLabel ? <span> · {dateLabel}</span> : null}
-            {data.tracked_trains_count ? (
-              <span className="hidden sm:inline">
-                {" "}
-                · network {data.tracked_trains_count.toLocaleString("en-IN")} trains
+    <div className={cn("space-y-4", compact ? "mt-2" : "mt-6")}>
+      {!compact ? (
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold sm:text-lg">
+              {isNearbyOnly ? "Nearby alternatives" : "Trains found"}
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                {filtered.length}
+                {filtered.length !== trains.length ? ` of ${trains.length}` : ""}
               </span>
+            </h2>
+            {(src || dst || dateLabel) && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {[src && dst ? `${src} → ${dst}` : null, dateLabel].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            {isNearbyOnly ? (
+              <p className="mt-1 text-xs text-amber-200/90">
+                No pure direct match — showing nearby hub options from the API.
+              </p>
             ) : null}
-          </p>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {!compact ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1.5">
             {CLASS_FILTERS.map((c) => (
               <button
@@ -252,7 +316,7 @@ export function ResultsList({
                     : "border-border/60 bg-background/40 text-muted-foreground hover:bg-muted/40",
                 )}
               >
-                {c}
+                {c === "All" ? "All classes" : c}
               </button>
             ))}
           </div>
@@ -266,7 +330,7 @@ export function ResultsList({
               <option value="recommended">Recommended</option>
               <option value="departure">Earliest departure</option>
               <option value="duration">Shortest duration</option>
-              <option value="confirmation">Best confirmation estimate</option>
+              <option value="least_stops">Fewest stops</option>
             </select>
           </label>
         </div>
@@ -278,6 +342,7 @@ export function ResultsList({
             key={`${train.train_number}-${train.board?.code}-${train.alight?.code}`}
             train={train}
             recommended={!!recommendedNumber && train.train_number === recommendedNumber}
+            rankLabel={rankLabelFor(train)}
             compact={compact}
           />
         ))}
@@ -293,10 +358,12 @@ export function ResultsList({
         </button>
       ) : null}
 
-      <p className="text-[11px] leading-relaxed text-muted-foreground/80">
-        Class labels are confirmation estimates from historical patterns — not live seat
-        availability. Always verify on IRCTC before booking.
-      </p>
+      {!compact ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground/80">
+          Timetable data is not live seat inventory. Any confirmation figures are historical
+          estimates from limited records — not live availability.
+        </p>
+      ) : null}
     </div>
   );
 }

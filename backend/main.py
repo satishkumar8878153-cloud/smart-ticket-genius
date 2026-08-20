@@ -259,6 +259,10 @@ _CHAT_BLOCK = r"""
             f"Try: Delhi to Patna, Bhagalpur to Patna, Katihar to Patna, or Bengaluru to Chennai."
         )
         # still fall back to old search() result if it has trains
+    except Exception as exp:
+        log.exception("chat | route-search path failed: %s", exp)
+        empty_reply = None
+        route_result = None
 """
 
 _MY_TRIPS = r"""

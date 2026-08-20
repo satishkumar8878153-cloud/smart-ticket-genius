@@ -52,7 +52,6 @@ def resolve_stations(q: str = "", limit: int = 20):
     needle = (q or "").strip()
     if not needle:
         return {"query": q, "matches": []}
-    # fetch_stations already ranks exact code/name/city before weak contains
     rows = fetch_stations(needle, limit=max(limit, 30))
     matches = []
     seen = set()
@@ -67,16 +66,21 @@ def resolve_stations(q: str = "", limit: int = 20):
 
 
 def _cluster_and_hubs(query):
-    needle = (query or "").strip().lower()
+    raw = (query or "").strip()
+    needle = raw.lower()
+    # Exact station-code query: do not expand full city cluster (major latency win)
+    is_code = 2 <= len(raw) <= 5 and raw.isalpha()
     key = None
-    for k in CITY_CLUSTERS:
-        if k in needle or needle in k:
-            key = k
-            break
+    if not is_code:
+        for k in CITY_CLUSTERS:
+            if k in needle or needle in k:
+                key = k
+                break
     primary = [m["code"] for m in resolve_stations(query)["matches"]]
     if key:
         primary = list(dict.fromkeys(primary + CITY_CLUSTERS[key]))
-    return primary, NEARBY_HUBS.get(key, [])
+    hubs = NEARBY_HUBS.get(key, []) if key else []
+    return primary, hubs
 
 
 def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> dict:
@@ -114,7 +118,6 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
     days_before = _days_before(journey_date)
     from db import get_client, fetch_train_stops_for_stations, fetch_train_names, fetch_station_names_for_codes
     client = get_client()
-    # Phase 1: primary stations only (keeps Patna↔Delhi under control)
     primary_codes = list(dict.fromkeys(primary_s + primary_d))
     trains = {}
     for s in fetch_train_stops_for_stations(client, primary_codes):
@@ -135,9 +138,7 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
         if dep is not None and arr is not None:
             day_diff = (b.get("day_offset") or 0) - (a.get("day_offset") or 0)
             dur = arr + day_diff * 1440 - dep
-        score, reason = _confirmation_score_and_reason(
-            train_number, travel_class, journey_date, days_before
-        )
+        # Defer pnr_history scoring until final shortlist (avoids N sequential DB calls)
         cand = {
             "train_number": train_number,
             "train_name": train_names_map.get(train_number),
@@ -158,8 +159,8 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
             "classes": _build_availability(journey_date, days_before),
             "requested_class": {
                 "class": travel_class,
-                "score": score,
-                "reason": reason,
+                "score": None,
+                "reason": "",
             },
         }
         if nearby:
@@ -185,7 +186,6 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
     expand_d = list(dict.fromkeys(primary_d + hubs_d))
     primary_pairs = {(sc, dc) for sc in primary_s for dc in primary_d}
     nearby = []
-    # Phase 2: only if no direct trains, load hub stops for nearby options
     if not direct and (hubs_s or hubs_d):
         hub_only = [c for c in (hubs_s + hubs_d) if c not in primary_codes]
         if hub_only:
@@ -211,6 +211,21 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
             nearby.append(best)
     nearby.sort(key=lambda r: (r["duration_minutes"] is None, r["duration_minutes"] or 0))
     nearby = nearby[:3]
+
+    def _attach_scores(rows, limit=25):
+        for c in rows[:limit]:
+            score, reason = _confirmation_score_and_reason(
+                c["train_number"], travel_class, journey_date, days_before
+            )
+            c["requested_class"] = {
+                "class": travel_class,
+                "score": score,
+                "reason": reason,
+            }
+        return rows
+
+    direct = _attach_scores(direct, limit=25)
+    nearby = _attach_scores(nearby, limit=5)
     candidates = direct + nearby
 
     recommendation = None
@@ -224,7 +239,7 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
                 dur = 1440
             has_nearby = bool(c.get("has_nearby"))
             total = int(0.6 * hist + 0.2 * max(0, 100 - dur / 20) + 0.2 * (100 if not has_nearby else 60))
-            h, m = dur // 60, dur % 60
+            h, mm = dur // 60, dur % 60
             board = c.get("board") or {}
             scored.append((total, {
                 "train_number": c["train_number"],
@@ -232,7 +247,7 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
                 "alight": c.get("alight"),
                 "duration_minutes": c.get("duration_minutes"),
                 "score": total,
-                "reason": reason or f"~{h}h {m}m journey",
+                "reason": reason or f"~{h}h {mm}m journey",
             }))
         scored.sort(key=lambda x: -x[0])
         recommendation = scored[0][1]
@@ -341,7 +356,7 @@ def my_trips(limit: int = 20, offset: int = 0):
                 train_number, class_code, journey_date, days_before
             )
         except Exception as exc:
-            log.exception("my_trips | risk score failed for %s: %s", train_number, exp)
+            log.exception("my_trips | risk score failed for %s: %s", train_number, exc)
             score, reason = 50, "Risk estimate unavailable right now."
         trips.append({
             "id": r.get("id"),

@@ -63,28 +63,90 @@ def fetch_trains_for_route(
 
 
 def fetch_stations(query: str | None = None, limit: int = 50) -> list[dict]:
+    """Search stations with ranked matching (exact code/name before contains)."""
     client = get_client()
     q = (query or "").strip()
     if not q:
         response = client.table("stations").select("*").limit(limit).execute()
         return response.data or []
-    by_code = (
-        client.table("stations")
-        .select("*")
-        .ilike("code", q)
-        .limit(limit)
-        .execute()
+
+    q_upper = q.upper()
+    q_lower = q.lower()
+    seen: set[str] = set()
+    ranked: list[dict] = []
+
+    def _add(rows: list) -> None:
+        for r in rows or []:
+            code = str(r.get("code") or "").strip().upper()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            ranked.append(r)
+
+    # 1) Exact code
+    _add(
+        (
+            client.table("stations")
+            .select("*")
+            .eq("code", q_upper)
+            .limit(5)
+            .execute()
+        ).data
     )
-    if by_code.data:
-        return by_code.data
-    response = (
+    if ranked:
+        return ranked[:limit]
+
+    # 2) Exact name (case-insensitive)
+    _add(
+        (
+            client.table("stations")
+            .select("*")
+            .ilike("name", q)
+            .limit(10)
+            .execute()
+        ).data
+    )
+
+    # 3) Exact city
+    _add(
+        (
+            client.table("stations")
+            .select("*")
+            .ilike("city", q)
+            .limit(15)
+            .execute()
+        ).data
+    )
+
+    # 4) Name starts-with — filter client-side to avoid
+    #    garbage like "Danapur" matching "MAHADANAPURAM" (MMH).
+    broad = (
         client.table("stations")
         .select("*")
         .or_(f"name.ilike.%{q}%,city.ilike.%{q}%,code.ilike.%{q}%")
-        .limit(limit)
+        .limit(80)
         .execute()
-    )
-    return response.data or []
+    ).data or []
+
+    starts, contains = [], []
+    for r in broad:
+        code = str(r.get("code") or "").strip().upper()
+        name = str(r.get("name") or "").strip().lower()
+        city = str(r.get("city") or "").strip().lower()
+        if code in seen:
+            continue
+        if name == q_lower or name.startswith(q_lower + " ") or name.startswith(q_lower):
+            starts.append(r)
+        elif city == q_lower or city.startswith(q_lower):
+            starts.append(r)
+        elif len(q_lower) >= 4 and (q_lower in name.split() or q_lower == name):
+            contains.append(r)
+        elif len(q_lower) >= 5 and name.startswith(q_lower[:5]):
+            contains.append(r)
+
+    _add(starts)
+    _add(contains)
+    return ranked[:limit]
 
 
 def fetch_pnr_history_stats(
@@ -242,3 +304,25 @@ def fetch_pnr_stats(
         "total": total,
         "confirm_rate": confirmed / total,
     }
+
+
+def fetch_station_names_for_codes(client, codes: list[str] | set[str]) -> dict[str, str]:
+    """Map station_code -> name for a small code set (no full-table scan)."""
+    out: dict[str, str] = {}
+    uniq = sorted({str(c).strip().upper() for c in codes if c})
+    if not uniq:
+        return out
+    for i in range(0, len(uniq), 50):
+        chunk = uniq[i : i + 50]
+        resp = (
+            client.table("stations")
+            .select("code,name")
+            .in_("code", chunk)
+            .execute()
+        )
+        for r in resp.data or []:
+            code = str(r.get("code") or "").strip().upper()
+            name = (r.get("name") or "").strip()
+            if code and name:
+                out[code] = name
+    return out

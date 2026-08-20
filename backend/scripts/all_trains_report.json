@@ -1,0 +1,48 @@
+{
+  "dry_run": true,
+  "database_writes_performed": false,
+  "source": {
+    "project": "https://github.com/datameet/railways",
+    "trains_url": "https://raw.githubusercontent.com/datameet/railways/master/trains.json",
+    "schedules_url": "https://raw.githubusercontent.com/datameet/railways/master/schedules.json",
+    "stations_url": "https://raw.githubusercontent.com/datameet/railways/master/stations.json"
+  },
+  "station_reference": {
+    "source": "datameet/railways stations.json (fallback)",
+    "count": 8990
+  },
+  "totals": {
+    "trains_discovered": 5208,
+    "trains_records_raw": 5208,
+    "valid_trains": 5208,
+    "unique_trains_in_schedules": 5208,
+    "trains_with_complete_schedule": 5208,
+    "total_schedule_rows_scanned": 417080,
+    "total_stop_records_emitted": 417080
+  },
+  "validation": {
+    "invalid_train_numbers": 0,
+    "duplicate_trains": 0,
+    "duplicate_stops": 0,
+    "unknown_station_codes": 0,
+    "missing_train_names": 1,
+    "missing_source": 0,
+    "missing_destination": 0,
+    "invalid_stop_sequence": 0,
+    "malformed_times": 0,
+    "conflicting_train_records": 0,
+    "incomplete_schedules": 0
+  },
+  "sample_errors": {
+    "missing_train_names": [
+      {
+        "train_number": "06345"
+      }
+    ]
+  },
+  "outputs": {
+    "trains_jsonl": "local-only",
+    "train_stops_jsonl": "local-only",
+    "errors_by_category": "local-only"
+  }
+}

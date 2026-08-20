@@ -285,6 +285,7 @@ def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> di
 """
 
 _CHAT_BLOCK = r"""
+    try:
         route_result = _route_search_core(
             intent["source"],
             intent["destination"],
@@ -313,17 +314,23 @@ _CHAT_BLOCK = r"""
                 acode = alight.get("code") or "?"
                 lines.append(f"• {title}: {bcode} {dep} → {acode} {arr} ({hm})")
             reply = "\n".join(lines)
-        else:
-            tracked = route_result.get("tracked_trains_count") or 0
-            reply = (
-                f"No direct train in our tracked network yet (we track {tracked} trains today).\n"
-                "Try: Delhi to Patna, Bhagalpur to Patna, Katihar to Patna, or Bengaluru to Chennai."
-            )
+            return {
+                "reply": reply,
+                "route": route_result,
+                "result": route_result,
+            }
+        tracked = route_result.get("tracked_trains_count") or 0
+        reply = (
+            f"No direct train in our tracked network yet (we track {tracked} trains today).\n"
+            "Try: Delhi to Patna, Bhagalpur to Patna, Katihar to Patna, or Bengaluru to Chennai."
+        )
         return {
             "reply": reply,
             "route": route_result,
             "result": route_result,
         }
+    except Exception as exp:
+        log.exception("chat | route-search path failed: %s", exp)
 """
 
 _MY_TRIPS = r"""
@@ -382,6 +389,21 @@ def my_trips(limit: int = 20, offset: int = 0):
     return {"trips": trips}
 """
 
+# Appended into the bootstrapped source (same mechanism as /my-trips).
+_SMART_SEARCH_ROUTE = r"""
+
+@app.post("/smart-search")
+def smart_search(payload: dict):
+    from smart_search import run_smart_search
+    src = str(payload.get("source") or payload.get("from") or "").strip()
+    dst = str(payload.get("destination") or payload.get("to") or "").strip()
+    jd = str(payload.get("journey_date") or payload.get("date") or "").strip() or None
+    cls = str(payload.get("class_code") or payload.get("travelClass") or "SL").strip() or "SL"
+    if not src or not dst:
+        raise HTTPException(status_code=400, detail="from/source and to/destination are required")
+    return run_smart_search(src, dst, jd, cls)
+"""
+
 
 def _patch(src: str) -> str:
     marker = 'log = logging.getLogger("smart-ticket-ai")'
@@ -393,7 +415,10 @@ def _patch(src: str) -> str:
     end = src.find('@app.post("/route-search")')
     if start >= 0 and end >= 0:
         src = src[:start] + _HELPER_AND_CORE + "\n\n" + src[end:]
-    cstart = src.find("        route_result = _route_search_core(")
+    # Replace the FULL try/except around route_search in /chat (keeps try balanced)
+    cstart = src.find("    try:\n        route_result = _route_search_core(")
+    if cstart < 0:
+        cstart = src.find("    try:\r\n        route_result = _route_search_core(")
     cend = src.find(
         "    # Fallback: existing endpoint-based search flow",
         cstart if cstart >= 0 else 0,
@@ -402,6 +427,8 @@ def _patch(src: str) -> str:
         src = src[:cstart] + _CHAT_BLOCK + "\n" + src[cend:]
     if '@app.get("/my-trips")' not in src:
         src = src.rstrip() + "\n" + _MY_TRIPS
+    if '@app.post("/smart-search")' not in src:
+        src = src.rstrip() + "\n" + _SMART_SEARCH_ROUTE
     return src
 
 
@@ -413,50 +440,3 @@ def bootstrap() -> None:
 
 
 bootstrap()
-
-
-# ---------------------------------------------------------------------------
-# Smart Search Orchestrator (alternative journey discovery)
-# Registered after bootstrap so it uses the live FastAPI app instance.
-# ---------------------------------------------------------------------------
-
-def _register_smart_search_route() -> None:
-    """Attach POST /smart-search without altering bootstrap-patched core."""
-    from fastapi import HTTPException
-    from pydantic import BaseModel, Field
-    from typing import Optional
-
-    class SmartSearchBody(BaseModel):
-        source: Optional[str] = Field(None, description="Origin city or station")
-        destination: Optional[str] = Field(None, description="Destination city or station")
-        from_: Optional[str] = Field(None, alias="from")
-        to: Optional[str] = None
-        journey_date: Optional[str] = None
-        date: Optional[str] = None
-        class_code: Optional[str] = None
-        travelClass: Optional[str] = None
-
-        class Config:
-            populate_by_name = True
-
-    @app.post("/smart-search")
-    def smart_search(body: SmartSearchBody):
-        from smart_search import run_smart_search
-        src = (body.source or body.from_ or "").strip()
-        dst = (body.destination or body.to or "").strip()
-        jd = (body.journey_date or body.date or "").strip() or None
-        cls = (body.class_code or body.travelClass or "SL").strip() or "SL"
-        if not src or not dst:
-            raise HTTPException(status_code=400, detail="from/source and to/destination are required")
-        return run_smart_search(src, dst, jd, cls)
-
-    log.info("smart-search | POST /smart-search registered")
-
-
-try:
-    _register_smart_search_route()
-except Exception as _ss_exc:
-    import logging as _logging
-    _logging.getLogger("smart-ticket-ai").exception(
-        "smart-search registration failed: %s", _ss_exc
-    )

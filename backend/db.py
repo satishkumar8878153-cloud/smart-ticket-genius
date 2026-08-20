@@ -344,3 +344,40 @@ def fetch_train_names(client) -> dict[str, str]:
             break
         offset += 1000
     return names
+
+
+def fetch_pnr_stats(
+    train_number: str,
+    class_code: str,
+    quota: str | None = None,
+) -> dict | None:
+    """Historical PNR confirmation stats for a train/class (and optional quota).
+
+    Used by the base main.py heuristic scoring path. Restored for import
+    compatibility after the db.py restore accidentally dropped this helper.
+    """
+    client = get_client()
+
+    query = (
+        client.table("pnr_history")
+        .select("confirmed")
+        .eq("train_number", train_number)
+        .eq("class_code", class_code)
+        .eq("verified", True)
+    )
+
+    if quota:
+        query = query.eq("quota", quota)
+
+    resp = query.execute()
+    rows = resp.data or []
+    if not rows:
+        return None
+
+    total = len(rows)
+    confirmed = sum(1 for row in rows if row.get("confirmed"))
+    return {
+        "confirmed": confirmed,
+        "total": total,
+        "confirm_rate": confirmed / total,
+    }

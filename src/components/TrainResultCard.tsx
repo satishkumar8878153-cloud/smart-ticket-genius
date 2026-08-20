@@ -1,4 +1,4 @@
-import { ArrowRight, ExternalLink } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import type { RouteTrain } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -25,17 +25,19 @@ export function formatTime(t?: string | null): string {
 }
 
 export function formatDuration(minutes?: number | null): string {
-  if (minutes == null || Number.isNaN(minutes)) return "duration n/a";
+  if (minutes == null || Number.isNaN(minutes)) return "Duration n/a";
   const m = Math.max(0, Math.round(minutes));
   const h = Math.floor(m / 60);
   const mins = m % 60;
-  if (h <= 0) return `~${mins}m`;
-  return `~${h}h ${mins}m`;
+  if (h <= 0) return `${mins}m`;
+  return `${h}h ${mins}m`;
 }
 
 export type TrainResultCardProps = {
   train: RouteTrain;
   recommended?: boolean;
+  /** Optional rank badge from client sort, e.g. "Earliest" */
+  rankLabel?: string | null;
   compact?: boolean;
   className?: string;
 };
@@ -43,10 +45,11 @@ export type TrainResultCardProps = {
 export function TrainResultCard({
   train,
   recommended = false,
+  rankLabel = null,
   compact = false,
   className,
 }: TrainResultCardProps) {
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const board = train.board || { code: "?", name: null };
   const alight = train.alight || { code: "?", name: null };
   const dayPlus = (alight.day_offset || 0) > (board.day_offset || 0);
@@ -55,26 +58,14 @@ export function TrainResultCard({
   const travelClass = train.requested_class?.class;
   const score = train.requested_class?.score;
   const reason = train.requested_class?.reason;
-
-  const bookOnIrctc = async () => {
-    const parts = [train.train_number, `${board.code} → ${alight.code}`];
-    if (travelClass) parts.push(travelClass);
-    try {
-      await navigator.clipboard.writeText(parts.join(" | "));
-    } catch {
-      /* clipboard may be blocked */
-    }
-    setFeedback("Copied! Opening IRCTC…");
-    window.open("https://www.irctc.co.in/nget/train-search", "_blank", "noopener");
-    window.setTimeout(() => setFeedback(null), 2500);
-  };
+  const trainName = (train.train_name || "").trim() || null;
 
   return (
     <article
       className={cn(
-        "gradient-card w-full max-w-full overflow-hidden rounded-2xl border p-4 shadow-card sm:p-5",
+        "w-full max-w-full overflow-hidden rounded-2xl border bg-card/60 p-4 shadow-sm sm:p-5",
         recommended
-          ? "border-indigo-500/50 shadow-[0_0_24px_-6px_rgba(99,102,241,0.45)]"
+          ? "border-indigo-500/45 ring-1 ring-indigo-500/20"
           : "border-border/60",
         className,
       )}
@@ -82,51 +73,78 @@ export function TrainResultCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-base font-semibold tracking-tight sm:text-lg">
+            <h3 className="text-base font-semibold tracking-tight tabular-nums sm:text-lg">
               {train.train_number}
             </h3>
-            {train.train_name ? (
-              <span className="truncate text-sm text-muted-foreground">{train.train_name}</span>
+            {recommended ? (
+              <span className="rounded-full border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
+                Recommended
+              </span>
+            ) : null}
+            {rankLabel ? (
+              <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {rankLabel}
+              </span>
             ) : null}
           </div>
+          {trainName ? (
+            <p className="mt-0.5 truncate text-sm text-muted-foreground">{trainName}</p>
+          ) : null}
         </div>
-        {recommended ? (
-          <span className="shrink-0 rounded-full border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-300">
-            Recommended
-          </span>
-        ) : null}
       </div>
 
-      <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+      <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{board.name || board.code}</div>
-          <div className="text-xs text-muted-foreground">{board.code}</div>
-          <div className="mt-0.5 text-sm font-semibold tabular-nums">{formatTime(board.departure)}</div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            From
+          </p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
+            {board.name || board.code}
+          </p>
+          <p className="text-xs text-muted-foreground">{board.code}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight">
+            {formatTime(board.departure)}
+          </p>
         </div>
-        <div className="flex flex-col items-center gap-0.5 px-1 text-muted-foreground">
-          <ArrowRight className="h-4 w-4 shrink-0" />
+
+        <div className="flex flex-col items-center justify-center pt-6 text-muted-foreground">
+          <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
           {dayPlus ? (
-            <span className="rounded-full border border-indigo-500/40 bg-indigo-500/15 px-1.5 py-px text-[10px] font-semibold text-indigo-300">
+            <span className="mt-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
               +1 day
             </span>
           ) : null}
         </div>
+
         <div className="min-w-0 text-right">
-          <div className="truncate text-sm font-medium">{alight.name || alight.code}</div>
-          <div className="text-xs text-muted-foreground">{alight.code}</div>
-          <div className="mt-0.5 text-sm font-semibold tabular-nums">{formatTime(alight.arrival)}</div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            To
+          </p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
+            {alight.name || alight.code}
+          </p>
+          <p className="text-xs text-muted-foreground">{alight.code}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight">
+            {formatTime(alight.arrival)}
+          </p>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-        <span>{formatDuration(train.duration_minutes)}</span>
-        <span aria-hidden>·</span>
+        <span className="font-medium text-foreground/80">
+          {formatDuration(train.duration_minutes)}
+        </span>
+        <span aria-hidden className="text-border">
+          ·
+        </span>
         <span>
           {stops} {stops === 1 ? "stop" : "stops"}
         </span>
         {train.note ? (
           <>
-            <span aria-hidden>·</span>
+            <span aria-hidden className="text-border">
+              ·
+            </span>
             <span className="text-amber-300/90">{train.note}</span>
           </>
         ) : null}
@@ -143,11 +161,12 @@ export function TrainResultCard({
                 className={cn(
                   "rounded-full border px-2.5 py-0.5 text-xs font-medium",
                   toneClass(chip?.tone),
-                  isRequested && "ring-1 ring-indigo-400/50",
+                  isRequested && "ring-1 ring-indigo-400/40",
                 )}
-                title="Confirmation estimate (not live availability)"
+                title="Historical estimate — not live availability"
               >
-                {cls} · {chip?.label ?? "—"}
+                {cls}
+                {chip?.label ? ` · ${chip.label}` : ""}
               </span>
             );
           })}
@@ -156,26 +175,87 @@ export function TrainResultCard({
 
       {score != null ? (
         <p className="mt-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">Confirmation estimate</span>
+          <span className="font-medium text-foreground/80">Historical confirmation estimate</span>
           {travelClass ? ` (${travelClass})` : ""}: ~{score}%
         </p>
       ) : null}
-      {reason ? (
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground/90">{reason}</p>
-      ) : null}
 
       {!compact ? (
-        <div className="mt-4">
+        <div className="mt-4 border-t border-border/50 pt-3">
           <button
             type="button"
-            onClick={() => void bookOnIrctc()}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-2.5 text-sm font-medium transition hover:bg-muted/40 sm:w-auto"
+            onClick={() => setDetailsOpen((v) => !v)}
+            className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-background/40 px-3 text-sm font-medium transition hover:bg-muted/40 sm:w-auto"
+            aria-expanded={detailsOpen}
           >
-            <ExternalLink className="h-4 w-4 shrink-0 text-indigo-400" />
-            Book on IRCTC
+            View Details
+            {detailsOpen ? (
+              <ChevronUp className="h-4 w-4 opacity-70" />
+            ) : (
+              <ChevronDown className="h-4 w-4 opacity-70" />
+            )}
           </button>
-          {feedback ? (
-            <p className="mt-2 text-xs font-medium text-emerald-400">{feedback}</p>
+
+          {detailsOpen ? (
+            <div className="mt-3 space-y-3 rounded-xl border border-border/50 bg-background/30 p-3 text-sm">
+              <dl className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Train</dt>
+                  <dd className="font-medium">
+                    {train.train_number}
+                    {trainName ? ` · ${trainName}` : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Duration</dt>
+                  <dd className="font-medium">{formatDuration(train.duration_minutes)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Boarding</dt>
+                  <dd className="font-medium">
+                    {board.name || board.code} ({board.code}) · {formatTime(board.departure)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Destination</dt>
+                  <dd className="font-medium">
+                    {alight.name || alight.code} ({alight.code}) · {formatTime(alight.arrival)}
+                    {dayPlus ? " · +1 day" : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Stops between</dt>
+                  <dd className="font-medium">{stops}</dd>
+                </div>
+                {travelClass ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Requested class</dt>
+                    <dd className="font-medium">{travelClass}</dd>
+                  </div>
+                ) : null}
+              </dl>
+
+              {score != null || reason ? (
+                <div className="rounded-lg border border-border/50 bg-muted/20 p-2.5">
+                  <p className="text-xs font-medium text-foreground/90">
+                    Historical confirmation estimate
+                  </p>
+                  {score != null ? (
+                    <p className="mt-0.5 text-sm">~{score}%</p>
+                  ) : null}
+                  {reason ? (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{reason}</p>
+                  ) : null}
+                  <p className="mt-1.5 text-[11px] text-muted-foreground/90">
+                    Based on limited historical records — not live seat availability.
+                  </p>
+                </div>
+              ) : null}
+
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Live availability is not connected yet. Timetable data is not live inventory.
+              </p>
+            </div>
           ) : null}
         </div>
       ) : null}

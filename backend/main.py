@@ -87,107 +87,106 @@ def _cluster_and_hubs(query):
     if key:
         primary = list(dict.fromkeys(primary + CITY_CLUSTERS[key]))
     # Bound city expansion to keep stop loading practical on Render
-    if len(primary) > 5:
-        primary = primary[:5]
+    primary = primary[:5]
     hubs = NEARBY_HUBS.get(key, []) if key else []
-    if len(hubs) > 4:
-        hubs = hubs[:4]
     return primary, hubs
 
 
 def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> dict:
+    from datetime import date as _date
+    journey_date = (date_str or _date.today().isoformat())[:10]
+    days_before = _days_before(journey_date)
+    primary_s, hubs_s = _cluster_and_hubs(source_q)
+    primary_d, hubs_d = _cluster_and_hubs(dest_q)
     suggestions = [
         "Delhi to Patna",
         "Bhagalpur to Patna",
         "Katihar to Patna",
         "Bengaluru to Chennai",
     ]
-    empty = {
-        "source_query": source_q,
-        "destination_query": dest_q,
-        "trains": [],
-        "direct_trains": [],
-        "nearby_options": [],
-        "alternative_dates": [],
-        "class_alternatives": [],
-        "recommendation": None,
-        "suggestions": suggestions,
-        "tracked_trains_count": 0,
-    }
-    primary_s, hubs_s = _cluster_and_hubs(source_q)
-    primary_d, hubs_d = _cluster_and_hubs(dest_q)
     if not primary_s or not primary_d:
-        return empty
-
-    from datetime import date, timedelta
-    if date_str:
-        try:
-            journey_date = date.fromisoformat(str(date_str)[:10]).isoformat()
-        except ValueError:
-            journey_date = (date.today() + timedelta(days=1)).isoformat()
-    else:
-        journey_date = (date.today() + timedelta(days=1)).isoformat()
-    days_before = _days_before(journey_date)
-    from db import get_client, fetch_train_stops_for_stations, fetch_train_names, fetch_station_names_for_codes
+        return {
+            "source_query": source_q,
+            "destination_query": dest_q,
+            "trains": [],
+            "direct_trains": [],
+            "nearby_options": [],
+            "alternative_dates": [],
+            "class_alternatives": [],
+            "recommendation": None,
+            "suggestions": suggestions,
+            "tracked_trains_count": 0,
+        }
     client = get_client()
     primary_codes = list(dict.fromkeys(primary_s + primary_d))
+    stops = fetch_train_stops_for_stations(client, primary_codes)
     trains = {}
-    for s in fetch_train_stops_for_stations(client, primary_codes):
+    for s in stops:
         trains.setdefault(s["train_number"], {})[s["station_code"]] = s
-    tracked = 5208
-    train_names_map = fetch_train_names(client)
-    name_codes = list(dict.fromkeys(primary_s + primary_d + hubs_s + hubs_d))
-    station_names = fetch_station_names_for_codes(client, name_codes)
+    tracked = len(trains)
+    names = fetch_train_names(client)
+    station_names = fetch_station_names_for_codes(client, primary_codes)
 
     def _pair_candidate(train_number, stop_map, sc, dc, nearby=False, note=None):
-        a = stop_map.get(sc)
-        b = stop_map.get(dc)
-        if not a or not b or a["stop_sequence"] >= b["stop_sequence"]:
+        board = stop_map.get(sc)
+        alight = stop_map.get(dc)
+        if not board or not alight:
             return None
-        dep = _time_to_minutes(a.get("departure_time"))
-        arr = _time_to_minutes(b.get("arrival_time"))
+        try:
+            if int(alight["stop_sequence"]) <= int(board["stop_sequence"]):
+                return None
+        except (TypeError, ValueError, KeyError):
+            return None
+        def _mins(t):
+            if not t:
+                return None
+            p = str(t).split(":")
+            if len(p) < 2:
+                return None
+            try:
+                return int(p[0]) * 60 + int(p[1])
+            except ValueError:
+                return None
+        dep = _mins(board.get("departure_time"))
+        arr = _mins(alight.get("arrival_time"))
         dur = None
         if dep is not None and arr is not None:
-            day_diff = (b.get("day_offset") or 0) - (a.get("day_offset") or 0)
-            dur = arr + day_diff * 1440 - dep
-        cand = {
+            day_b = int(board.get("day_offset") or 0)
+            day_a = int(alight.get("day_offset") or 0)
+            dur = (day_a * 1440 + arr) - (day_b * 1440 + dep)
+            if dur <= 0:
+                return None
+        stops_between = max(0, int(alight["stop_sequence"]) - int(board["stop_sequence"]) - 1)
+        return {
             "train_number": train_number,
-            "train_name": train_names_map.get(train_number),
+            "train_name": names.get(train_number) or "",
             "board": {
                 "code": sc,
-                "name": station_names.get(sc),
-                "departure": a.get("departure_time"),
-                "day_offset": a.get("day_offset"),
+                "name": station_names.get(sc) or sc,
+                "departure": (board.get("departure_time") or "")[:8],
+                "day_offset": int(board.get("day_offset") or 0),
             },
             "alight": {
                 "code": dc,
-                "name": station_names.get(dc),
-                "arrival": b.get("arrival_time"),
-                "day_offset": b.get("day_offset"),
+                "name": station_names.get(dc) or dc,
+                "arrival": (alight.get("arrival_time") or "")[:8],
+                "day_offset": int(alight.get("day_offset") or 0),
             },
-            "stops_between": b["stop_sequence"] - a["stop_sequence"],
             "duration_minutes": dur,
-            "classes": _build_availability(journey_date, days_before),
-            "requested_class": {
-                "class": travel_class,
-                "score": None,
-                "reason": None,
-            },
+            "stops_between": stops_between,
+            "has_nearby": nearby,
+            "note": note,
         }
-        if nearby:
-            cand["has_nearby"] = True
-            cand["note"] = note or f"Board at {sc} instead of {source_q} area"
-        return cand
 
     direct = []
     for train_number, stop_map in trains.items():
         best = None
         for sc in primary_s:
             for dc in primary_d:
-                cand = _pair_candidate(train_number, stop_map, sc, dc, nearby=False)
+                cand = _pair_candidate(train_number, stop_map, sc, dc)
                 if cand is None:
                     continue
-                if best is None or cand["stops_between"] < best["stops_between"]:
+                if best is None or (cand["duration_minutes"] or 10**9) < (best["duration_minutes"] or 10**9):
                     best = cand
         if best:
             direct.append(best)
@@ -309,37 +308,27 @@ _CHAT_BLOCK = r"""
                 arr = alight.get("arrival") or "?"
                 tn = n.get("train_number") or "?"
                 tname = n.get("train_name") or ""
-                title = f"{tn}" + (f" {tname}" if tname else "")
-                cls = ((n.get("requested_class") or {}).get("class")) or intent.get("travelClass") or "SL"
-                score = (n.get("requested_class") or {}).get("score")
-                score_bit = f", confirm~{score}%" if score is not None else ""
-                lines.append(
-                    f"• {title}: "
-                    f"{board.get('name') or board.get('code')} {dep} → "
-                    f"{alight.get('name') or alight.get('code')} {arr} "
-                    f"({hm}, {n.get('stops_between', '?')} stops, {cls}{score_bit})"
-                )
-            if nearby and not direct:
-                lines.append("Note: nearby hub alternatives (not pure direct OD).")
+                title = f"{tn} {tname}".strip()
+                bcode = board.get("code") or "?"
+                acode = alight.get("code") or "?"
+                lines.append(f"• {title}: {bcode} {dep} → {acode} {arr} ({hm})")
             reply = "\n".join(lines)
-            return {"reply": reply, "route": route_result}
-        N = route_result.get("tracked_trains_count") or 0
-        empty_reply = (
-            f"No direct train in our tracked network yet (we track {N} trains today). "
-            f"Try: Delhi to Patna, Bhagalpur to Patna, Katihar to Patna, or Bengaluru to Chennai."
-        )
-        # still fall back to old search() result if it has trains
-    except Exception as exp:
-        log.exception("chat | route-search path failed: %s", exp)
-        empty_reply = None
-        route_result = None
+        else:
+            tracked = route_result.get("tracked_trains_count") or 0
+            reply = (
+                f"No direct train in our tracked network yet (we track {tracked} trains today).\n"
+                "Try: Delhi to Patna, Bhagalpur to Patna, Katihar to Patna, or Bengaluru to Chennai."
+            )
+        return {
+            "reply": reply,
+            "route": route_result,
+            "result": route_result,
+        }
 """
 
 _MY_TRIPS = r"""
-
 @app.get("/my-trips")
 def my_trips(limit: int = 20, offset: int = 0):
-    from db import get_client
     from datetime import date
     client = get_client()
     try:
@@ -424,3 +413,50 @@ def bootstrap() -> None:
 
 
 bootstrap()
+
+
+# ---------------------------------------------------------------------------
+# Smart Search Orchestrator (alternative journey discovery)
+# Registered after bootstrap so it uses the live FastAPI app instance.
+# ---------------------------------------------------------------------------
+
+def _register_smart_search_route() -> None:
+    """Attach POST /smart-search without altering bootstrap-patched core."""
+    from fastapi import HTTPException
+    from pydantic import BaseModel, Field
+    from typing import Optional
+
+    class SmartSearchBody(BaseModel):
+        source: Optional[str] = Field(None, description="Origin city or station")
+        destination: Optional[str] = Field(None, description="Destination city or station")
+        from_: Optional[str] = Field(None, alias="from")
+        to: Optional[str] = None
+        journey_date: Optional[str] = None
+        date: Optional[str] = None
+        class_code: Optional[str] = None
+        travelClass: Optional[str] = None
+
+        class Config:
+            populate_by_name = True
+
+    @app.post("/smart-search")
+    def smart_search(body: SmartSearchBody):
+        from smart_search import run_smart_search
+        src = (body.source or body.from_ or "").strip()
+        dst = (body.destination or body.to or "").strip()
+        jd = (body.journey_date or body.date or "").strip() or None
+        cls = (body.class_code or body.travelClass or "SL").strip() or "SL"
+        if not src or not dst:
+            raise HTTPException(status_code=400, detail="from/source and to/destination are required")
+        return run_smart_search(src, dst, jd, cls)
+
+    log.info("smart-search | POST /smart-search registered")
+
+
+try:
+    _register_smart_search_route()
+except Exception as _ss_exc:
+    import logging as _logging
+    _logging.getLogger("smart-ticket-ai").exception(
+        "smart-search registration failed: %s", _ss_exc
+    )

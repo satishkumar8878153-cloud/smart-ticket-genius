@@ -1,20 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertCircle, LayoutGrid, Loader2, MessageSquare, Route as RouteIcon, ShieldCheck, Sparkles, Train } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AIInsightsPanel } from "@/components/smart-ticket/AIInsightsPanel";
-import { AlternateDates } from "@/components/smart-ticket/AlternateDates";
-import { AlternateStations } from "@/components/smart-ticket/AlternateStations";
-import { BestRecommendationCard } from "@/components/smart-ticket/BestRecommendationCard";
-import { ClassMatrix } from "@/components/smart-ticket/ClassMatrix";
+import { LayoutGrid, MessageSquare, Route as RouteIcon, ShieldCheck, Sparkles, Train } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchForm } from "@/components/smart-ticket/SearchForm";
 import { MissionChat } from "@/components/smart-ticket/MissionChat";
 import { ThemeToggle } from "@/components/smart-ticket/ThemeToggle";
-import type { SearchQuery, SearchResult, TicketClass } from "@/lib/mock-data";
-import { searchTrains } from "@/services/search.service";
-import { generateMissionConfirm, type MissionConfirmResult } from "@/services/mission.service";
-import { MissionConfirm } from "@/components/smart-ticket/MissionConfirm";
-import { TatkalStrategy } from "@/components/smart-ticket/TatkalStrategy";
-import { JourneyGuardian } from "@/components/smart-ticket/JourneyGuardian";
+import type { SearchQuery, TicketClass } from "@/lib/mock-data";
 
 type HomeSearch = {
   from?: string;
@@ -35,45 +25,26 @@ export const Route = createFileRoute("/")({
 
 function Home() {
   const { from, to, date, cls } = Route.useSearch();
-  const [result, setResult] = useState<SearchResult | null>(null);
-  const [mission, setMission] = useState<MissionConfirmResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [missionOpen, setMissionOpen] = useState(false);
-  const autoRan = useRef<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const autoHint = useRef(false);
 
-  const handleSearch = useCallback(async function handleSearch(query: SearchQuery) {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await searchTrains(query);
-      setResult(res);
-      const missionRes = await generateMissionConfirm(query, res);
-      setMission(missionRes);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Search failed");
-      setResult(null);
-      setMission(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!from || !to || !date) return;
-    const key = `${from}|${to}|${date}|${cls || ""}`;
-    if (autoRan.current === key) return;
-    autoRan.current = key;
-    void handleSearch({
+  const initialQuery = useMemo((): Partial<SearchQuery> | undefined => {
+    if (!from && !to && !date && !cls) return undefined;
+    return {
       source: from,
       destination: to,
       date,
-      travelClass: cls || "SL",
-    });
-  }, [from, to, date, cls, handleSearch]);
+      travelClass: cls,
+    };
+  }, [from, to, date, cls]);
+
+  useEffect(() => {
+    if (from && to) autoHint.current = true;
+  }, [from, to]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen overflow-x-hidden bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">
@@ -133,62 +104,29 @@ function Home() {
 
         <section className="mt-10">
           <SearchForm
-            initialSource={from}
-            initialDestination={to}
-            initialDate={date}
-            initialClass={cls}
-            onSearch={handleSearch}
-            loading={loading}
+            initialQuery={initialQuery}
+            onSearch={() => setHasSearched(true)}
           />
         </section>
 
-        {error ? (
-          <div className="mt-8 flex items-start gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        {loading && (
-          <div className="mt-10 flex justify-center">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Analyzing trains, availability and predictions…
-            </div>
-          </div>
-        )}
-
-        {!loading && result ? (
-          <div className="mt-10 space-y-6">
-            <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
-              <BestRecommendationCard train={result.best} />
-              <AIInsightsPanel
-                insights={
-                  mission?.advice?.insights.length
-                    ? [...mission.advice!.insights, ...result.aiInsights].slice(0, 6)
-                    : result.aiInsights
-                }
-              />
-            </div>
-            <ClassMatrix trains={[result.best, ...result.otherTrains]} />
-            {mission ? <MissionConfirm plans={mission.plans} /> : null}
-            <div className="grid gap-6 lg:grid-cols-2">
-              <AlternateStations stations={result.alternateStations} />
-              <AlternateDates dates={result.alternateDates} />
-            </div>
-            {mission ? (
-              <>
-                <TatkalStrategy tatkal={mission.tatkal} />
-                <JourneyGuardian tasks={mission.guardian} />
-              </>
-            ) : null}
-          </div>
-        ) : !loading && !error ? (
+        {!hasSearched && !autoHint.current ? (
           <div className="mt-14 grid gap-4 text-center sm:grid-cols-3">
             {[
-              { t: "Confirm probability", d: "See the chance your ticket will confirm before booking.", Icon: ShieldCheck },
-              { t: "All-class matrix", d: "Compare seat status across SL, 3A, 2A, 1A, CC and EC at a glance.", Icon: LayoutGrid },
-              { t: "Smarter alternatives", d: "Nearby stations and flexible dates unlock better seats.", Icon: RouteIcon },
+              {
+                t: "Confirm probability",
+                d: "See the chance your ticket will confirm before booking.",
+                Icon: ShieldCheck,
+              },
+              {
+                t: "Live route cards",
+                d: "Board, alight, duration and stops from the production timetable.",
+                Icon: LayoutGrid,
+              },
+              {
+                t: "Smarter alternatives",
+                d: "Nearby stations and flexible dates unlock better seats.",
+                Icon: RouteIcon,
+              },
             ].map((f) => (
               <div
                 key={f.t}

@@ -53,9 +53,14 @@ export function MissionChat({
     setSending(true);
     try {
       const res = await askMission(text);
+      const routePayload = res.route || res.result || null;
+      const trainList =
+        (routePayload?.direct_trains?.length
+          ? routePayload.direct_trains
+          : routePayload?.trains) || [];
       const trains =
-        res.result && Array.isArray(res.result.trains) && res.result.trains.length > 0
-          ? res.result
+        routePayload && trainList.length > 0
+          ? { ...routePayload, trains: trainList }
           : null;
       setMessages((m) => [
         ...m,
@@ -86,9 +91,9 @@ export function MissionChat({
         side="bottom"
         className="flex h-[70vh] max-h-[70vh] w-full flex-col gap-0 rounded-t-3xl border-border/60 bg-background p-0 sm:max-w-none"
       >
-        <SheetHeader className="flex-row items-center justify-between space-y-0 border-b border-border/60 px-4 py-3 text-left">
+        <SheetHeader className="flex-row items-center gap-2 space-y-0 border-b border-border/60 px-4 py-3 text-left">
           <SheetTitle className="flex items-center gap-2 text-base font-semibold">
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/20 text-primary">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/15 text-indigo-300">
               <MessageSquare className="h-4 w-4" />
             </span>
             Mission AI
@@ -110,8 +115,8 @@ export function MissionChat({
               >
                 <p className="whitespace-pre-wrap">{msg.text}</p>
                 {msg.trains ? (
-                  <div className="mt-2 [&_.mt-6]:mt-2">
-                    <ResultsList data={msg.trains} />
+                  <div className="mt-2 w-full min-w-0 max-w-full [&_.mt-6]:mt-2">
+                    <ResultsList data={msg.trains} compact />
                   </div>
                 ) : null}
               </div>

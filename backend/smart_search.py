@@ -1,0 +1,547 @@
+"""Smart Search Orchestrator — alternative journey discovery.
+
+Discovers practical origin/destination alternatives around a passenger request
+using controlled city clusters and hubs (not blind combinatorial search).
+
+Does NOT claim live availability. Historical confirmation is a weak tie-breaker only.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import date
+from typing import Any
+
+from db import (
+    get_client,
+    fetch_stations,
+    fetch_train_stops_for_stations,
+    fetch_train_names,
+    fetch_station_names_for_codes,
+    fetch_pnr_stats,
+)
+from prediction import heuristic_confirmation_score
+
+log = logging.getLogger("smart-ticket-ai.smart-search")
+
+# ---------------------------------------------------------------------------
+# Controlled geography (bounded — prevents combinatorial explosion)
+# ---------------------------------------------------------------------------
+
+CITY_CLUSTERS: dict[str, list[str]] = {
+    "patna": ["PNBE", "RJPB", "DNR", "PPTA", "PNC"],
+    "danapur": ["DNR", "PNBE", "RJPB", "PPTA"],
+    "delhi": ["NDLS", "DLI", "NZM", "ANVT"],
+    "new delhi": ["NDLS", "DLI", "NZM", "ANVT"],
+    "mumbai": ["LTT", "CSMT", "BDTS", "MMCT", "BCT"],
+    "kolkata": ["HWH", "SDAH", "KOAA", "SHM"],
+    "chennai": ["MAS", "MS"],
+    "bengaluru": ["SBC", "BNC", "YPR"],
+    "bangalore": ["SBC", "BNC", "YPR"],
+    "bhagalpur": ["BGP"],
+    "katihar": ["KIR"],
+    "gaya": ["GAYA"],
+    "ranchi": ["RNC"],
+    "varanasi": ["BSB", "DDU"],
+    "lucknow": ["LKO", "LJN"],
+    "chhapra": ["CPR"],
+    "chapra": ["CPR"],
+    "buxar": ["BXR"],
+    "ara": ["ARA"],
+    "arrah": ["ARA"],
+}
+
+# Hubs near origin regions — only used when primary pairs are weak/empty
+NEARBY_HUBS: dict[str, list[str]] = {
+    "patna": ["ARA", "BJU", "GAYA", "DDU", "KIUL", "CPR"],
+    "danapur": ["ARA", "BJU", "PNBE", "CPR"],
+    "delhi": ["GZB", "MTJ"],
+    "new delhi": ["GZB", "MTJ"],
+    "mumbai": ["KYN"],
+    "kolkata": ["DKAE", "BDC"],
+    "chennai": ["TBM"],
+    "bengaluru": ["KJM"],
+    "bangalore": ["KJM"],
+    "bhagalpur": ["JMP", "KGG"],
+    "katihar": ["KGG", "BJU"],
+    "gaya": ["PNBE", "DDU"],
+    "ranchi": ["GAYA"],
+    "varanasi": ["DDU"],
+    "lucknow": ["CNB"],
+    "chhapra": ["PNBE", "ARA", "DDU"],
+    "chapra": ["PNBE", "ARA", "DDU"],
+    "buxar": ["ARA", "PNBE", "DDU", "MGS"],
+    "ara": ["PNBE", "DNR", "DDU"],
+    "arrah": ["PNBE", "DNR", "DDU"],
+}
+
+# Hard bounds — performance guardrails
+MAX_ORIGIN_PRIMARY = 5
+MAX_DEST_PRIMARY = 5
+MAX_HUB_ORIGIN = 4
+MAX_HUB_DEST = 2
+MAX_DIRECT = 20
+MAX_ALT = 15
+MAX_STOPS_CODES = 14  # total station codes loaded for stops
+
+
+def _days_before(journey_date: str | None) -> int:
+    if not journey_date:
+        return 7
+    try:
+        d = date.fromisoformat(str(journey_date)[:10])
+        return max(0, (d - date.today()).days)
+    except ValueError:
+        return 7
+
+
+def _match_cluster_key(query: str) -> str | None:
+    needle = (query or "").strip().lower()
+    if not needle:
+        return None
+    for k in sorted(CITY_CLUSTERS.keys(), key=len, reverse=True):
+        if k in needle or needle in k:
+            return k
+    return None
+
+
+def _resolve_codes(query: str, limit: int = 8) -> list[str]:
+    needle = (query or "").strip()
+    if not needle:
+        return []
+    rows = fetch_stations(needle, limit=max(limit, 20))
+    codes: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        c = (r.get("code") or "").strip().upper()
+        if c and c not in seen:
+            seen.add(c)
+            codes.append(c)
+        if len(codes) >= limit:
+            break
+    return codes
+
+
+def expand_candidates(query: str) -> dict[str, Any]:
+    """Build bounded origin/destination candidate sets for one side of the journey."""
+    raw = (query or "").strip()
+    is_code = 2 <= len(raw) <= 5 and raw.replace(" ", "").isalnum()
+    key = None if is_code else _match_cluster_key(raw)
+
+    resolved = _resolve_codes(raw, limit=8)
+    primary: list[str] = []
+    if is_code and resolved:
+        upper = raw.upper()
+        primary = [upper] if upper in {c.upper() for c in resolved} else resolved[:1]
+        hubs: list[str] = []
+    else:
+        primary = list(resolved)
+        if key:
+            for c in CITY_CLUSTERS.get(key, []):
+                if c not in primary:
+                    primary.append(c)
+        primary = primary[:MAX_ORIGIN_PRIMARY]
+        hubs = list(NEARBY_HUBS.get(key or "", []))[:MAX_HUB_ORIGIN]
+
+    return {
+        "query": raw,
+        "cluster_key": key,
+        "primary": primary,
+        "hubs": hubs,
+        "is_code": is_code,
+    }
+
+
+def _parse_time_minutes(t: str | None) -> int | None:
+    if not t:
+        return None
+    parts = str(t).strip().split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[0]) * 60 + int(parts[1])
+    except ValueError:
+        return None
+
+
+def _duration_minutes(board: dict, alight: dict) -> int | None:
+    dep = _parse_time_minutes(board.get("departure_time") or board.get("departure"))
+    arr = _parse_time_minutes(alight.get("arrival_time") or alight.get("arrival"))
+    if dep is None or arr is None:
+        return None
+    day_b = int(board.get("day_offset") or 0)
+    day_a = int(alight.get("day_offset") or 0)
+    return (day_a * 1440 + arr) - (day_b * 1440 + dep)
+
+
+def _build_train_index(stops: list[dict]) -> dict[str, dict[str, dict]]:
+    trains: dict[str, dict[str, dict]] = {}
+    for s in stops:
+        tn = str(s.get("train_number") or "").strip()
+        sc = str(s.get("station_code") or "").strip().upper()
+        if not tn or not sc:
+            continue
+        trains.setdefault(tn, {})[sc] = s
+    return trains
+
+
+def _pair(
+    train_number: str,
+    stop_map: dict[str, dict],
+    sc: str,
+    dc: str,
+    names: dict[str, str],
+    station_names: dict[str, str],
+) -> dict | None:
+    board = stop_map.get(sc)
+    alight = stop_map.get(dc)
+    if not board or not alight:
+        return None
+    seq_b = board.get("stop_sequence")
+    seq_a = alight.get("stop_sequence")
+    if seq_b is None or seq_a is None:
+        return None
+    try:
+        if int(seq_a) <= int(seq_b):
+            return None
+    except (TypeError, ValueError):
+        return None
+    dur = _duration_minutes(board, alight)
+    if dur is not None and dur <= 0:
+        return None
+    stops_between = max(0, int(seq_a) - int(seq_b) - 1)
+    day_b = int(board.get("day_offset") or 0)
+    day_a = int(alight.get("day_offset") or 0)
+    return {
+        "train_number": train_number,
+        "train_name": names.get(train_number) or "",
+        "board": {
+            "code": sc,
+            "name": station_names.get(sc) or sc,
+            "departure": (board.get("departure_time") or board.get("departure") or "")[:8],
+            "day_offset": day_b,
+        },
+        "alight": {
+            "code": dc,
+            "name": station_names.get(dc) or dc,
+            "arrival": (alight.get("arrival_time") or alight.get("arrival") or "")[:8],
+            "day_offset": day_a,
+        },
+        "duration_minutes": dur,
+        "stops_between": stops_between,
+        "day_offset": day_a - day_b,
+    }
+
+
+def _category(
+    sc: str,
+    dc: str,
+    origin_primary: set[str],
+    dest_primary: set[str],
+    origin_hubs: set[str],
+    dest_hubs: set[str],
+) -> str:
+    if sc in origin_primary and dc in dest_primary:
+        return "direct"
+    if sc in origin_hubs and dc in dest_primary:
+        return "hub_origin"
+    if sc in origin_primary and dc in dest_hubs:
+        return "hub_destination"
+    if sc not in origin_primary and dc in dest_primary:
+        return "nearby_origin"
+    if sc in origin_primary and dc not in dest_primary:
+        return "nearby_destination"
+    return "hub"
+
+
+def _why(cat: str, sc: str, dc: str, origin_q: str, dest_q: str) -> str:
+    if cat == "direct":
+        return f"Direct timetable option on {sc} → {dc}"
+    if cat == "nearby_origin":
+        return f"Nearby origin: board at {sc} instead of {origin_q} area"
+    if cat == "nearby_destination":
+        return f"Nearby destination: alight at {dc} instead of {dest_q} area"
+    if cat == "hub_origin":
+        return f"Hub alternative: major nearby hub {sc} → {dc}"
+    if cat == "hub_destination":
+        return f"Hub destination: {sc} → {dc}"
+    return f"Alternative timetable option {sc} → {dc}"
+
+
+def _rank_score(row: dict) -> float:
+    """Primary ranking ignores weak historical signal except as tiny tie-breaker."""
+    cat = row.get("category") or ""
+    cat_w = {
+        "direct": 1000,
+        "nearby_origin": 700,
+        "nearby_destination": 650,
+        "hub_origin": 500,
+        "hub_destination": 450,
+        "hub": 400,
+    }.get(cat, 300)
+    dur = row.get("duration_minutes")
+    dur_w = 0.0 if dur is None else max(0.0, 400.0 - float(dur) / 5.0)
+    stops = row.get("stops_between") or 0
+    stop_w = max(0, 80 - int(stops))
+    hist = 0.0
+    rc = row.get("requested_class") or {}
+    if isinstance(rc.get("score"), (int, float)):
+        hist = float(rc["score"]) * 0.05
+    return cat_w + dur_w + stop_w + hist
+
+
+def _attach_historical(rows: list[dict], travel_class: str, journey_date: str) -> None:
+    days = _days_before(journey_date)
+    for r in rows:
+        tn = r.get("train_number") or ""
+        score = None
+        reason = None
+        try:
+            stats = fetch_pnr_stats(tn, travel_class, journey_date)
+            if stats and stats.get("sample_size"):
+                conf = stats.get("confirm_rate")
+                if conf is not None:
+                    score = int(round(float(conf) * 100)) if conf <= 1 else int(conf)
+                    reason = (
+                        f"Historical confirmation estimate ~{score}% "
+                        f"(limited sample n={stats.get('sample_size')}; not live availability)."
+                    )
+        except Exception:
+            pass
+        if score is None:
+            score = heuristic_confirmation_score(
+                travel_class, journey_date or date.today().isoformat(), days
+            )
+            reason = (
+                f"~{score}% heuristic estimate only — not live availability "
+                f"(historical PNR sample is too small for reliable prediction)."
+            )
+        r["requested_class"] = {
+            "class": travel_class,
+            "score": score,
+            "reason": reason,
+        }
+        r["label"] = "Timetable option"
+
+
+def run_smart_search(
+    source: str,
+    destination: str,
+    journey_date: str | None = None,
+    class_code: str = "SL",
+) -> dict[str, Any]:
+    t0 = time.perf_counter()
+    source = (source or "").strip()
+    destination = (destination or "").strip()
+    travel_class = (class_code or "SL").strip().upper() or "SL"
+    journey_date = (journey_date or date.today().isoformat())[:10]
+
+    empty = {
+        "request": {
+            "from": source,
+            "to": destination,
+            "journey_date": journey_date,
+            "class_code": travel_class,
+        },
+        "direct_options": [],
+        "alternative_options": [],
+        "nearby_origin_options": [],
+        "nearby_destination_options": [],
+        "hub_options": [],
+        "search_summary": {},
+        "recommendation": None,
+        "suggestions": [
+            "Delhi to Patna",
+            "Bhagalpur to Patna",
+            "Katihar to Patna",
+            "Bengaluru to Chennai",
+        ],
+    }
+
+    if not source or not destination:
+        empty["search_summary"] = {
+            "error": "from and to are required",
+            "latency_ms": int((time.perf_counter() - t0) * 1000),
+        }
+        return empty
+
+    if source.lower() == destination.lower():
+        empty["search_summary"] = {
+            "error": "origin and destination must differ",
+            "latency_ms": int((time.perf_counter() - t0) * 1000),
+        }
+        return empty
+
+    origin = expand_candidates(source)
+    dest = expand_candidates(destination)
+
+    origin_primary = origin["primary"][:MAX_ORIGIN_PRIMARY]
+    dest_primary = dest["primary"][:MAX_DEST_PRIMARY]
+    origin_hubs = origin["hubs"][:MAX_HUB_ORIGIN]
+    dest_hubs = dest["hubs"][:MAX_HUB_DEST]
+
+    if not origin_primary or not dest_primary:
+        empty["search_summary"] = {
+            "resolved_origin": origin,
+            "resolved_destination": dest,
+            "error": "could not resolve stations",
+            "latency_ms": int((time.perf_counter() - t0) * 1000),
+        }
+        return empty
+
+    codes_a = list(dict.fromkeys(origin_primary + dest_primary))[:MAX_STOPS_CODES]
+    client = get_client()
+    stops_a = fetch_train_stops_for_stations(client, codes_a)
+    trains_a = _build_train_index(stops_a)
+    names = fetch_train_names(client)
+    station_names = fetch_station_names_for_codes(client, codes_a)
+
+    origin_p_set = set(origin_primary)
+    dest_p_set = set(dest_primary)
+    origin_h_set = set(origin_hubs)
+    dest_h_set = set(dest_hubs)
+
+    direct: list[dict] = []
+    seen_keys: set[tuple] = set()
+
+    def _add_row(row: dict, sc: str, dc: str) -> None:
+        key = (row["train_number"], sc, dc)
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        cat = _category(sc, dc, origin_p_set, dest_p_set, origin_h_set, dest_h_set)
+        row["category"] = cat
+        row["why"] = _why(cat, sc, dc, source, destination)
+        row["alternative_source"] = cat
+        if cat == "direct":
+            direct.append(row)
+
+    for tn, stop_map in trains_a.items():
+        best = None
+        best_sc = best_dc = None
+        for sc in origin_primary:
+            for dc in dest_primary:
+                cand = _pair(tn, stop_map, sc, dc, names, station_names)
+                if cand is None:
+                    continue
+                if best is None or (cand["duration_minutes"] or 10**9) < (
+                    best["duration_minutes"] or 10**9
+                ):
+                    best, best_sc, best_dc = cand, sc, dc
+        if best and best_sc and best_dc:
+            _add_row(best, best_sc, best_dc)
+
+    alternatives: list[dict] = []
+    codes_loaded = len(codes_a)
+    if len(direct) < 3 and (origin_hubs or dest_hubs):
+        expand_o = list(dict.fromkeys(origin_primary + origin_hubs))
+        expand_d = list(dict.fromkeys(dest_primary + dest_hubs))
+        codes_b = list(dict.fromkeys(expand_o + expand_d))[:MAX_STOPS_CODES]
+        extra = [c for c in codes_b if c not in codes_a]
+        if extra:
+            codes_loaded = len(codes_b)
+            stops_b = fetch_train_stops_for_stations(client, extra)
+            trains_b = _build_train_index(stops_b)
+            for tn, sm in trains_b.items():
+                trains_a.setdefault(tn, {}).update(sm)
+            station_names.update(fetch_station_names_for_codes(client, extra))
+
+        primary_pairs = {(sc, dc) for sc in origin_primary for dc in dest_primary}
+        for tn, stop_map in trains_a.items():
+            best = None
+            best_sc = best_dc = None
+            for sc in expand_o:
+                for dc in expand_d:
+                    if (sc, dc) in primary_pairs:
+                        continue
+                    cand = _pair(tn, stop_map, sc, dc, names, station_names)
+                    if cand is None:
+                        continue
+                    if best is None or (cand["duration_minutes"] or 10**9) < (
+                        best["duration_minutes"] or 10**9
+                    ):
+                        best, best_sc, best_dc = cand, sc, dc
+            if best and best_sc and best_dc:
+                key = (best["train_number"], best_sc, best_dc)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                cat = _category(
+                    best_sc, best_dc, origin_p_set, dest_p_set, origin_h_set, dest_h_set
+                )
+                best["category"] = cat
+                best["why"] = _why(cat, best_sc, best_dc, source, destination)
+                best["alternative_source"] = cat
+                alternatives.append(best)
+
+    _attach_historical(direct, travel_class, journey_date)
+    _attach_historical(alternatives, travel_class, journey_date)
+    direct.sort(key=_rank_score, reverse=True)
+    alternatives.sort(key=_rank_score, reverse=True)
+    direct = direct[:MAX_DIRECT]
+    alternatives = alternatives[:MAX_ALT]
+
+    nearby_origin = [r for r in alternatives if r.get("category") in ("nearby_origin",)]
+    nearby_dest = [r for r in alternatives if r.get("category") in ("nearby_destination",)]
+    hub_opts = [
+        r
+        for r in alternatives
+        if r.get("category") in ("hub_origin", "hub_destination", "hub")
+    ]
+
+    recommendation = None
+    pool = direct + alternatives
+    if pool:
+        pool_sorted = sorted(pool, key=_rank_score, reverse=True)
+        top = pool_sorted[0]
+        recommendation = {
+            "train_number": top["train_number"],
+            "train_name": top.get("train_name"),
+            "board": top.get("board"),
+            "alight": top.get("alight"),
+            "duration_minutes": top.get("duration_minutes"),
+            "category": top.get("category"),
+            "why": top.get("why"),
+            "score": int(_rank_score(top)),
+            "label": "Best timetable option",
+            "requested_class": top.get("requested_class"),
+        }
+
+    latency_ms = int((time.perf_counter() - t0) * 1000)
+    return {
+        "request": {
+            "from": source,
+            "to": destination,
+            "journey_date": journey_date,
+            "class_code": travel_class,
+        },
+        "resolved": {
+            "origin": origin,
+            "destination": dest,
+        },
+        "direct_options": direct,
+        "alternative_options": alternatives,
+        "nearby_origin_options": nearby_origin,
+        "nearby_destination_options": nearby_dest,
+        "hub_options": hub_opts,
+        "search_summary": {
+            "origin_primary": origin_primary,
+            "destination_primary": dest_primary,
+            "origin_hubs_used": origin_hubs if len(direct) < 3 else [],
+            "destination_hubs_used": dest_hubs if len(direct) < 3 else [],
+            "station_codes_loaded": codes_loaded,
+            "trains_indexed": len(trains_a),
+            "direct_count": len(direct),
+            "alternative_count": len(alternatives),
+            "latency_ms": latency_ms,
+            "note": "Timetable options only — not live seat availability.
+",
+        },
+        "recommendation": recommendation,
+        "suggestions": [
+            "Delhi to Patna",
+            "Bhagalpur to Patna",
+            "Katihar to Patna",
+            "Bengaluru to Chennai",
+        ],
+    }

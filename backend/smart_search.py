@@ -24,10 +24,6 @@ from prediction import heuristic_confirmation_score
 
 log = logging.getLogger("smart-ticket-ai.smart-search")
 
-# ---------------------------------------------------------------------------
-# Controlled geography (bounded — prevents combinatorial explosion)
-# ---------------------------------------------------------------------------
-
 CITY_CLUSTERS: dict[str, list[str]] = {
     "patna": ["PNBE", "RJPB", "DNR", "PPTA", "PNC"],
     "danapur": ["DNR", "PNBE", "RJPB", "PPTA"],
@@ -51,7 +47,6 @@ CITY_CLUSTERS: dict[str, list[str]] = {
     "arrah": ["ARA"],
 }
 
-# Hubs near origin regions — only used when primary pairs are weak/empty
 NEARBY_HUBS: dict[str, list[str]] = {
     "patna": ["ARA", "BJU", "GAYA", "DDU", "KIUL", "CPR"],
     "danapur": ["ARA", "BJU", "PNBE", "CPR"],
@@ -75,14 +70,13 @@ NEARBY_HUBS: dict[str, list[str]] = {
     "arrah": ["PNBE", "DNR", "DDU"],
 }
 
-# Hard bounds — performance guardrails
 MAX_ORIGIN_PRIMARY = 5
 MAX_DEST_PRIMARY = 5
 MAX_HUB_ORIGIN = 4
 MAX_HUB_DEST = 2
 MAX_DIRECT = 20
 MAX_ALT = 15
-MAX_STOPS_CODES = 14  # total station codes loaded for stops
+MAX_STOPS_CODES = 14
 
 
 def _days_before(journey_date: str | None) -> int:
@@ -123,11 +117,9 @@ def _resolve_codes(query: str, limit: int = 8) -> list[str]:
 
 
 def expand_candidates(query: str) -> dict[str, Any]:
-    """Build bounded origin/destination candidate sets for one side of the journey."""
     raw = (query or "").strip()
     is_code = 2 <= len(raw) <= 5 and raw.replace(" ", "").isalnum()
     key = None if is_code else _match_cluster_key(raw)
-
     resolved = _resolve_codes(raw, limit=8)
     primary: list[str] = []
     if is_code and resolved:
@@ -142,7 +134,6 @@ def expand_candidates(query: str) -> dict[str, Any]:
                     primary.append(c)
         primary = primary[:MAX_ORIGIN_PRIMARY]
         hubs = list(NEARBY_HUBS.get(key or "", []))[:MAX_HUB_ORIGIN]
-
     return {
         "query": raw,
         "cluster_key": key,
@@ -269,7 +260,6 @@ def _why(cat: str, sc: str, dc: str, origin_q: str, dest_q: str) -> str:
 
 
 def _rank_score(row: dict) -> float:
-    """Primary ranking ignores weak historical signal except as tiny tie-breaker."""
     cat = row.get("category") or ""
     cat_w = {
         "direct": 1000,
@@ -534,8 +524,7 @@ def run_smart_search(
             "direct_count": len(direct),
             "alternative_count": len(alternatives),
             "latency_ms": latency_ms,
-            "note": "Timetable options only — not live seat availability.
-",
+            "note": "Timetable options only — not live seat availability.",
         },
         "recommendation": recommendation,
         "suggestions": [

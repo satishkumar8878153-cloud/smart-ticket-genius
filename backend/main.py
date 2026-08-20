@@ -319,7 +319,7 @@ def my_trips(limit: int = 20, offset: int = 0):
         )
         rows = resp.data or []
     except Exception as exc:
-        log.exception("my_trips | fetch failed: %s", exp)
+        log.exception("my_trips | fetch failed: %s", exc)
         return {"trips": []}
     trips = []
     for r in rows:
@@ -341,7 +341,7 @@ def my_trips(limit: int = 20, offset: int = 0):
                 train_number, class_code, journey_date, days_before
             )
         except Exception as exc:
-            log.exception("my_trips | risk score failed for %s: %s", train_number, exp)
+            log.exception("my_trips | risk score failed for %s: %s", train_number, exc)
             score, reason = 50, "Risk estimate unavailable right now."
         trips.append({
             "id": r.get("id"),

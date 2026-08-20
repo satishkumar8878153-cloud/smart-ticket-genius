@@ -7,6 +7,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
 
 _client: Client | None = None
 
+# Process-local caches (safe: read-only stats, short TTL)
+_PNR_STATS_CACHE: dict[tuple[str, str, str], tuple[float, dict | None]] = {}
+_PNR_STATS_TTL_SEC = 300.0
+_TRAIN_NAMES_CACHE: dict[str, str] | None = None
+
 
 STATION_ALIASES: dict[str, list[str]] = {
     "patna": ["pnbe", "patna", "patna junction"],
@@ -83,7 +88,6 @@ def fetch_stations(query: str | None = None, limit: int = 50) -> list[dict]:
             seen.add(code)
             ranked.append(r)
 
-    # 1) Exact code
     _add(
         (
             client.table("stations")
@@ -96,7 +100,6 @@ def fetch_stations(query: str | None = None, limit: int = 50) -> list[dict]:
     if ranked:
         return ranked[:limit]
 
-    # 2) Exact name (case-insensitive)
     _add(
         (
             client.table("stations")
@@ -107,7 +110,6 @@ def fetch_stations(query: str | None = None, limit: int = 50) -> list[dict]:
         ).data
     )
 
-    # 3) Exact city
     _add(
         (
             client.table("stations")
@@ -118,8 +120,6 @@ def fetch_stations(query: str | None = None, limit: int = 50) -> list[dict]:
         ).data
     )
 
-    # 4) Name starts-with — filter client-side to avoid
-    #    garbage like "Danapur" matching "MAHADANAPURAM" (MMH).
     broad = (
         client.table("stations")
         .select("*")
@@ -257,6 +257,9 @@ def fetch_train_stops_for_stations(
 
 
 def fetch_train_names(client) -> dict[str, str]:
+    global _TRAIN_NAMES_CACHE
+    if _TRAIN_NAMES_CACHE is not None:
+        return _TRAIN_NAMES_CACHE
     names: dict[str, str] = {}
     offset = 0
     while True:
@@ -275,7 +278,51 @@ def fetch_train_names(client) -> dict[str, str]:
         if len(rows) < 1000:
             break
         offset += 1000
+    _TRAIN_NAMES_CACHE = names
     return names
+
+
+_PNR_INDEX: dict[tuple[str, str], dict] | None = None
+_PNR_INDEX_LOADED_AT: float = 0.0
+
+
+def _load_pnr_index(client) -> dict[tuple[str, str], dict]:
+    """Load all verified pnr_history rows once (table is small, ~62 rows)."""
+    import time
+    global _PNR_INDEX, _PNR_INDEX_LOADED_AT
+    now = time.time()
+    if _PNR_INDEX is not None and (now - _PNR_INDEX_LOADED_AT) < _PNR_STATS_TTL_SEC:
+        return _PNR_INDEX
+    index: dict[tuple[str, str], dict] = {}
+    offset = 0
+    while True:
+        resp = (
+            client.table("pnr_history")
+            .select("train_number,class_code,confirmed,quota")
+            .eq("verified", True)
+            .range(offset, offset + 999)
+            .execute()
+        )
+        rows = resp.data or []
+        for r in rows:
+            tn = str(r.get("train_number") or "").strip()
+            cls = str(r.get("class_code") or "").strip().upper()
+            if not tn or not cls:
+                continue
+            key = (tn, cls)
+            bucket = index.setdefault(key, {"confirmed": 0, "total": 0})
+            bucket["total"] += 1
+            if r.get("confirmed"):
+                bucket["confirmed"] += 1
+        if len(rows) < 1000:
+            break
+        offset += 1000
+    for key, bucket in index.items():
+        total = bucket["total"]
+        bucket["confirm_rate"] = (bucket["confirmed"] / total) if total else 0.0
+    _PNR_INDEX = index
+    _PNR_INDEX_LOADED_AT = now
+    return index
 
 
 def fetch_pnr_stats(
@@ -283,26 +330,17 @@ def fetch_pnr_stats(
     class_code: str,
     quota: str | None = None,
 ) -> dict | None:
+    """Return historical confirmation stats. Uses in-memory index of full pnr_history."""
     client = get_client()
-    query = (
-        client.table("pnr_history")
-        .select("confirmed")
-        .eq("train_number", train_number)
-        .eq("class_code", class_code)
-        .eq("verified", True)
-    )
-    if quota:
-        query = query.eq("quota", quota)
-    resp = query.execute()
-    rows = resp.data or []
-    if not rows:
+    index = _load_pnr_index(client)
+    key = (str(train_number).strip(), str(class_code).strip().upper())
+    bucket = index.get(key)
+    if not bucket or bucket.get("total", 0) == 0:
         return None
-    total = len(rows)
-    confirmed = sum(1 for row in rows if row.get("confirmed"))
     return {
-        "confirmed": confirmed,
-        "total": total,
-        "confirm_rate": confirmed / total,
+        "confirmed": bucket["confirmed"],
+        "total": bucket["total"],
+        "confirm_rate": bucket["confirm_rate"],
     }
 
 

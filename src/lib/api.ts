@@ -21,6 +21,7 @@ export type ClassChip = {
 
 export type RouteTrain = {
   train_number: string;
+  train_name?: string | null;
   board: RouteStop;
   alight: RouteStop;
   stops_between?: number;
@@ -28,21 +29,38 @@ export type RouteTrain = {
   classes?: Record<string, ClassChip>;
   requested_class?: {
     class?: string;
-    score?: number;
+    score?: number | null;
     reason?: string;
   };
+  has_nearby?: boolean;
+  note?: string;
+};
+
+export type RouteRecommendation = {
+  train_number?: string;
+  board?: RouteStop;
+  alight?: RouteStop;
+  duration_minutes?: number | null;
+  score?: number;
+  reason?: string;
 };
 
 export type RouteSearchResponse = {
   source_query?: string;
   destination_query?: string;
   trains: RouteTrain[];
+  direct_trains?: RouteTrain[];
+  nearby_options?: RouteTrain[];
+  recommendation?: RouteRecommendation | null;
   suggestions?: string[];
   tracked_trains_count?: number;
 };
 
 export type ChatResponse = {
   reply: string;
+  /** Preferred key from /chat */
+  route?: RouteSearchResponse | null;
+  /** Legacy alias */
   result?: RouteSearchResponse | null;
 };
 
@@ -98,7 +116,12 @@ export async function askMission(message: string): Promise<ChatResponse> {
     }
     throw new Error(detail);
   }
-  return (await res.json()) as ChatResponse;
+  const json = (await res.json()) as ChatResponse;
+  // Backend returns `route`; keep `result` as a stable alias for UI
+  if (!json.result && json.route) {
+    json.result = json.route;
+  }
+  return json;
 }
 
 export type TripRisk = {

@@ -1,6 +1,7 @@
 {
   "dry_run": true,
   "database_writes_performed": false,
+  "validation_mode": "production_station_reference",
   "source": {
     "project": "https://github.com/datameet/railways",
     "trains_url": "https://raw.githubusercontent.com/datameet/railways/master/trains.json",
@@ -8,41 +9,107 @@
     "stations_url": "https://raw.githubusercontent.com/datameet/railways/master/stations.json"
   },
   "station_reference": {
-    "source": "datameet/railways stations.json (fallback)",
-    "count": 8990
+    "source": "supabase.public.stations (read-only)",
+    "station_codes_loaded": 15,
+    "expected_by_user": 8993,
+    "note": "Production public.stations currently contains only 15 rows (exact count via paginated select). Not 8,993."
   },
   "totals": {
     "trains_discovered": 5208,
     "trains_records_raw": 5208,
     "valid_trains": 5208,
-    "unique_trains_in_schedules": 5208,
-    "trains_with_complete_schedule": 5208,
+    "unique_trains_in_schedules": 1931,
+    "trains_with_complete_schedule": 529,
     "total_schedule_rows_scanned": 417080,
-    "total_stop_records_emitted": 417080
+    "total_stop_records_emitted": 2620,
+    "valid_stops": 2620
   },
   "validation": {
     "invalid_train_numbers": 0,
     "duplicate_trains": 0,
     "duplicate_stops": 0,
-    "unknown_station_codes": 0,
+    "unknown_station_codes": 423550,
     "missing_train_names": 1,
     "missing_source": 0,
     "missing_destination": 0,
     "invalid_stop_sequence": 0,
     "malformed_times": 0,
     "conflicting_train_records": 0,
-    "incomplete_schedules": 0
+    "incomplete_schedules": 1402
   },
-  "sample_errors": {
-    "missing_train_names": [
-      {
-        "train_number": "06345"
-      }
+  "unknown_station_codes_detail": {
+    "unique_unknown_codes_in_schedules": 8526,
+    "schedule_rows_with_unknown_code": 414460,
+    "top_unknown_codes": [
+      {"code": "CNB", "count": 312},
+      {"code": "ET", "count": 293},
+      {"code": "GZB", "count": 287},
+      {"code": "SBB", "count": 285},
+      {"code": "BZA", "count": 264},
+      {"code": "KOPR", "count": 262},
+      {"code": "MGS", "count": 259},
+      {"code": "BRC", "count": 254},
+      {"code": "ALD", "count": 242},
+      {"code": "KYN", "count": 241}
+    ],
+    "samples": [
+      {"train_number": "47154", "station_code": "FM", "station_name": "KACHEGUDA FALAKNUMA"},
+      {"train_number": "56044", "station_code": "TCR", "station_name": "THRISUR"},
+      {"train_number": "19269", "station_code": "PBR", "station_name": "PORBANDAR"},
+      {"train_number": "58205", "station_code": "R", "station_name": "RAIPUR JN"},
+      {"train_number": "63542", "station_code": "GMO", "station_name": "GOMOH JN"},
+      {"train_number": "21068", "station_code": "RBL", "station_name": "RAE BARELI JN"},
+      {"train_number": "56646", "station_code": "SBHR", "station_name": "Subrahmanya Road"},
+      {"train_number": "56379", "station_code": "ERS", "station_name": "ERNAKULAM JN"},
+      {"train_number": "55145", "station_code": "SRU", "station_name": "SALEMPUR JN"},
+      {"train_number": "51688", "station_code": "BIR", "station_name": "Bir"},
+      {"train_number": "63596", "station_code": "ASN", "station_name": "ASANSOL JN"},
+      {"train_number": "52228", "station_code": "TPU", "station_name": "Tanakpur"},
+      {"train_number": "59227", "station_code": "BTD", "station_name": "BOTAD JN"},
+      {"train_number": "14523", "station_code": "MFP", "station_name": "MUZAFFARPUR JN"},
+      {"train_number": "58151", "station_code": "BRMP", "station_name": "Biramitrapur"},
+      {"train_number": "59478", "station_code": "PTN", "station_name": "PATAN"},
+      {"train_number": "31929", "station_code": "SDAH", "station_name": "KOLKATA SEALDAH"},
+      {"train_number": "04857", "station_code": "PPR", "station_name": "PIPAR ROAD JN"},
+      {"train_number": "53215", "station_code": "BXR", "station_name": "BUXAR"},
+      {"train_number": "53067", "station_code": "BWN", "station_name": "BARDDHAMAN JN"},
+      {"train_number": "47128", "station_code": "LPI", "station_name": "LINGAMPALLI"},
+      {"train_number": "12720", "station_code": "HYB", "station_name": "HYDERABAD DECCAN"},
+      {"train_number": "56656", "station_code": "MAQ", "station_name": "MANGALORE CNTL"},
+      {"train_number": "18002", "station_code": "DGHA", "station_name": "Digha Flag Station"},
+      {"train_number": "55792", "station_code": "NCB", "station_name": "NEW COOCH BEHAR"},
+      {"train_number": "11014", "station_code": "CBE", "station_name": "COIMBATORE JN"},
+      {"train_number": "57581", "station_code": "AK", "station_name": "AKOLA JN"},
+      {"train_number": "57200", "station_code": "RJY", "station_name": "RAJAMUNDRY"},
+      {"train_number": "12719", "station_code": "AII", "station_name": "AJMER JN"},
+      {"train_number": "04601", "station_code": "JAT", "station_name": "JAMMU TAWI"},
+      {"train_number": "04728", "station_code": "BDTS", "station_name": "MUMBAI BANDRA TERMINUS"},
+      {"train_number": "04728", "station_code": "BKN", "station_name": "BIKANER JN"},
+      {"train_number": "09022", "station_code": "JAT", "station_name": "JAMMU TAWI"},
+      {"train_number": "14523", "station_code": "MFP", "station_name": "MUZAFFARPUR JN"},
+      {"train_number": "19269", "station_code": "PBR", "station_name": "PORBANDAR"},
+      {"train_number": "31929", "station_code": "SDAH", "station_name": "KOLKATA SEALDAH"},
+      {"train_number": "53215", "station_code": "BXR", "station_name": "BUXAR"},
+      {"train_number": "55145", "station_code": "SRU", "station_name": "SALEMPUR JN"},
+      {"train_number": "56379", "station_code": "ERS", "station_name": "ERNAKULAM JN"},
+      {"train_number": "56646", "station_code": "SBHR", "station_name": "Subrahmanya Road"},
+      {"train_number": "56656", "station_code": "MAQ", "station_name": "MANGALORE CNTL"},
+      {"train_number": "58151", "station_code": "BRMP", "station_name": "Biramitrapur"},
+      {"train_number": "58205", "station_code": "R", "station_name": "RAIPUR JN"},
+      {"train_number": "59227", "station_code": "BTD", "station_name": "BOTAD JN"},
+      {"train_number": "59478", "station_code": "PTN", "station_name": "PATAN"},
+      {"train_number": "63542", "station_code": "GMO", "station_name": "GOMOH JN"},
+      {"train_number": "63596", "station_code": "ASN", "station_name": "ASANSOL JN"},
+      {"train_number": "47154", "station_code": "FM", "station_name": "KACHEGUDA FALAKNUMA"},
+      {"train_number": "56044", "station_code": "TCR", "station_name": "THRISUR"},
+      {"train_number": "21068", "station_code": "RBL", "station_name": "RAE BARELI JN"}
     ]
   },
-  "outputs": {
-    "trains_jsonl": "local-only",
-    "train_stops_jsonl": "local-only",
-    "errors_by_category": "local-only"
-  }
+  "safe_for_production_import": false,
+  "blocking_reasons": [
+    "public.stations has only 15 codes, not 8,993",
+    "423,550 schedule/stop references fail station_code FK validation",
+    "Only 2,620 of 417,080 stops match known stations",
+    "1,402 incomplete schedules when filtered to known stations only"
+  ]
 }

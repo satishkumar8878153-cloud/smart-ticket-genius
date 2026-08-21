@@ -48,61 +48,111 @@ def _days_before(jd):
 def _match_cluster_key(query):
     needle = (query or "").strip().lower()
     if not needle: return None
+    if needle in CITY_CLUSTERS:
+        return needle
     for k in sorted(CITY_CLUSTERS.keys(), key=len, reverse=True):
         if k in needle or needle in k: return k
     return None
 
+def _match_cluster_key_exact(query):
+    needle = (query or "").strip().lower()
+    if needle in CITY_CLUSTERS:
+        return needle
+    return None
+
 def _is_explicit_station_code(query):
     raw = (query or "").strip()
-    if not raw or any(ch.isspace() for ch in raw): return False
+    if not raw or any(ch.isspace() for ch in raw):
+        return False
     upper = raw.upper()
-    if not (2 <= len(upper) <= 5 and upper.isalnum()): return False
+    if not (2 <= len(upper) <= 5 and upper.isalnum()):
+        return False
+    city_key = _match_cluster_key_exact(raw)
+    if city_key is not None and raw != upper:
+        return False
+    known_code = False
     for r in fetch_stations(upper, limit=5):
-        if str(r.get("code") or "").strip().upper() == upper: return True
+        if str(r.get("code") or "").strip().upper() == upper:
+            known_code = True
+            break
+    if not known_code:
+        return False
+    if raw == upper:
+        return True
+    if city_key is None:
+        return True
     return False
 
-def _strong_primary_codes(query, limit=5):
+def _strong_primary_codes(query, limit=5, allow_starts=True):
     needle = (query or "").strip()
-    if not needle: return []
+    if not needle:
+        return []
     rows = fetch_stations(needle, limit=max(30, limit * 4))
     q_upper, q_lower = needle.upper(), needle.lower()
     exact_code, exact_name, exact_city, starts, seen = [], [], [], [], set()
     def push(bucket, code):
         if code and code not in seen:
-            seen.add(code); bucket.append(code)
+            seen.add(code)
+            bucket.append(code)
     for r in rows:
         c = str(r.get("code") or "").strip().upper()
         name = str(r.get("name") or "").strip().lower()
         city = str(r.get("city") or "").strip().lower()
-        if not c: continue
-        if c == q_upper: push(exact_code, c)
-        elif name == q_lower or name.rstrip(".") == q_lower: push(exact_name, c)
-        elif city == q_lower: push(exact_city, c)
-        elif name.startswith(q_lower) or city.startswith(q_lower) or c.startswith(q_upper):
+        if not c:
+            continue
+        if c == q_upper:
+            push(exact_code, c)
+        elif name == q_lower or name.rstrip(".") == q_lower:
+            push(exact_name, c)
+        elif city == q_lower:
+            push(exact_city, c)
+        elif allow_starts and (
+            name.startswith(q_lower)
+            or city.startswith(q_lower)
+            or (len(q_upper) >= 3 and c.startswith(q_upper))
+        ):
             push(starts, c)
-    return (exact_code + exact_name + exact_city + starts)[:limit]
+    ordered = exact_code + exact_name + exact_city
+    if allow_starts:
+        ordered = ordered + starts
+    return ordered[:limit]
 
 def expand_candidates(query):
     raw = (query or "").strip()
+    city_key = _match_cluster_key_exact(raw)
     is_code = _is_explicit_station_code(raw)
-    key = None if is_code else _match_cluster_key(raw)
+    key = None if is_code else (city_key or _match_cluster_key(raw))
     if is_code:
-        return {"query": raw, "cluster_key": None, "primary": [raw.upper()], "hubs": [], "is_code": True}
-    primary = _strong_primary_codes(raw, limit=MAX_ORIGIN_PRIMARY)
-    if key:
-        for c in CITY_CLUSTERS.get(key, []):
-            if c not in primary: primary.append(c)
-        primary = primary[:MAX_ORIGIN_PRIMARY]
-    hubs = list(NEARBY_HUBS.get(key or "", []))[:MAX_HUB_ORIGIN]
+        return {
+            "query": raw,
+            "cluster_key": None,
+            "primary": [raw.upper()],
+            "hubs": [],
+            "is_code": True,
+        }
     if key and CITY_CLUSTERS.get(key):
-        preferred = CITY_CLUSTERS[key][0]
-        if preferred in primary:
-            primary = [preferred] + [c for c in primary if c != preferred]
-        elif not primary:
-            primary = list(CITY_CLUSTERS[key])[:MAX_ORIGIN_PRIMARY]
-        else:
-            primary = list(dict.fromkeys([preferred] + primary))[:MAX_ORIGIN_PRIMARY]
-    return {"query": raw, "cluster_key": key, "primary": primary, "hubs": hubs, "is_code": False}
+        primary = list(dict.fromkeys(CITY_CLUSTERS[key]))
+        for c in _strong_primary_codes(raw, limit=MAX_ORIGIN_PRIMARY, allow_starts=False):
+            if c not in primary:
+                primary.append(c)
+        primary = primary[:MAX_ORIGIN_PRIMARY]
+        hubs = list(NEARBY_HUBS.get(key, []))[:MAX_HUB_ORIGIN]
+        return {
+            "query": raw,
+            "cluster_key": key,
+            "primary": primary,
+            "hubs": hubs,
+            "is_code": False,
+        }
+    primary = _strong_primary_codes(raw, limit=MAX_ORIGIN_PRIMARY, allow_starts=True)
+    hubs = []
+    return {
+        "query": raw,
+        "cluster_key": key,
+        "primary": primary,
+        "hubs": hubs,
+        "is_code": False,
+    }
 
 def _parse_time_minutes(t):
     if not t: return None

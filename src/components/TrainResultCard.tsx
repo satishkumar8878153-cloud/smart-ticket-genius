@@ -38,6 +38,8 @@ export type TrainResultCardProps = {
   recommended?: boolean;
   /** Optional rank badge from client sort, e.g. "Earliest" */
   rankLabel?: string | null;
+  /** Smart Search category badge: DIRECT / NEARBY ORIGIN / HUB … */
+  categoryLabel?: string | null;
   compact?: boolean;
   className?: string;
 };
@@ -46,6 +48,7 @@ export function TrainResultCard({
   train,
   recommended = false,
   rankLabel = null,
+  categoryLabel = null,
   compact = false,
   className,
 }: TrainResultCardProps) {
@@ -81,6 +84,19 @@ export function TrainResultCard({
                 Recommended
               </span>
             ) : null}
+            {categoryLabel ? (
+              <span
+                className={
+                  categoryLabel === "DIRECT"
+                    ? "rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300"
+                    : categoryLabel === "HUB"
+                      ? "rounded-full border border-violet-500/40 bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-200"
+                      : "rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-200"
+                }
+              >
+                {categoryLabel}
+              </span>
+            ) : null}
             {rankLabel ? (
               <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 {rankLabel}
@@ -98,45 +114,38 @@ export function TrainResultCard({
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             From
           </p>
-          <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
+          <p className="mt-0.5 text-lg font-semibold tabular-nums sm:text-xl">
+            {formatTime(board.departure)}
+          </p>
+          <p className="truncate text-sm font-medium text-foreground">
             {board.name || board.code}
           </p>
           <p className="text-xs text-muted-foreground">{board.code}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight">
-            {formatTime(board.departure)}
-          </p>
         </div>
-
-        <div className="flex flex-col items-center justify-center pt-6 text-muted-foreground">
-          <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
+        <div className="flex flex-col items-center justify-center pt-4">
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+          <p className="mt-1 text-center text-[11px] text-muted-foreground">
+            {formatDuration(train.duration_minutes)}
+          </p>
           {dayPlus ? (
-            <span className="mt-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
-              +1 day
-            </span>
+            <p className="text-[10px] font-medium text-amber-300">+1 day</p>
           ) : null}
         </div>
-
         <div className="min-w-0 text-right">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             To
           </p>
-          <p className="mt-0.5 truncate text-sm font-semibold text-foreground">
+          <p className="mt-0.5 text-lg font-semibold tabular-nums sm:text-xl">
+            {formatTime(alight.arrival)}
+          </p>
+          <p className="truncate text-sm font-medium text-foreground">
             {alight.name || alight.code}
           </p>
           <p className="text-xs text-muted-foreground">{alight.code}</p>
-          <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight">
-            {formatTime(alight.arrival)}
-          </p>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-        <span className="font-medium text-foreground/80">
-          {formatDuration(train.duration_minutes)}
-        </span>
-        <span aria-hidden className="text-border">
-          ·
-        </span>
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span>
           {stops} {stops === 1 ? "stop" : "stops"}
         </span>
@@ -148,115 +157,75 @@ export function TrainResultCard({
             <span className="text-amber-300/90">{train.note}</span>
           </>
         ) : null}
+        {train.why && train.why !== train.note ? (
+          <>
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+            <span className="text-muted-foreground">{train.why}</span>
+          </>
+        ) : null}
       </div>
 
       {!compact && Object.keys(classes).length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {Object.entries(classes).map(([cls, chip]) => {
-            const isRequested =
-              travelClass && cls.toUpperCase() === String(travelClass).toUpperCase();
-            return (
-              <span
-                key={cls}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                  toneClass(chip?.tone),
-                  isRequested && "ring-1 ring-indigo-400/40",
-                )}
-                title="Historical estimate — not live availability"
-              >
-                {cls}
-                {chip?.label ? ` · ${chip.label}` : ""}
-              </span>
-            );
-          })}
+          {Object.entries(classes).map(([code, chip]) => (
+            <span
+              key={code}
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                toneClass(chip.tone),
+              )}
+            >
+              {code}
+              {chip.label ? ` · ${chip.label}` : ""}
+            </span>
+          ))}
         </div>
       ) : null}
 
-      {score != null ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">Historical confirmation estimate</span>
-          {travelClass ? ` (${travelClass})` : ""}: ~{score}%
-        </p>
+      {travelClass && score != null ? (
+        <div className="mt-3 rounded-xl border border-border/50 bg-background/40 px-3 py-2">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Confirmation estimate ({travelClass})
+          </p>
+          <p className="text-sm font-semibold tabular-nums text-foreground">{score}%</p>
+          {reason ? (
+            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{reason}</p>
+          ) : null}
+          <p className="mt-1 text-[10px] text-muted-foreground/80">
+            Historical estimate from limited PNR records — not live availability.
+          </p>
+        </div>
       ) : null}
 
       {!compact ? (
-        <div className="mt-4 border-t border-border/50 pt-3">
-          <button
-            type="button"
-            onClick={() => setDetailsOpen((v) => !v)}
-            className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-background/40 px-3 text-sm font-medium transition hover:bg-muted/40 sm:w-auto"
-            aria-expanded={detailsOpen}
-          >
-            View Details
-            {detailsOpen ? (
-              <ChevronUp className="h-4 w-4 opacity-70" />
-            ) : (
-              <ChevronDown className="h-4 w-4 opacity-70" />
-            )}
-          </button>
-
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((o) => !o)}
+          className="mt-3 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-indigo-300 hover:text-indigo-200"
+        >
           {detailsOpen ? (
-            <div className="mt-3 space-y-3 rounded-xl border border-border/50 bg-background/30 p-3 text-sm">
-              <dl className="grid gap-2 sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Train</dt>
-                  <dd className="font-medium">
-                    {train.train_number}
-                    {trainName ? ` · ${trainName}` : ""}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Duration</dt>
-                  <dd className="font-medium">{formatDuration(train.duration_minutes)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Boarding</dt>
-                  <dd className="font-medium">
-                    {board.name || board.code} ({board.code}) · {formatTime(board.departure)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Destination</dt>
-                  <dd className="font-medium">
-                    {alight.name || alight.code} ({alight.code}) · {formatTime(alight.arrival)}
-                    {dayPlus ? " · +1 day" : ""}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Stops between</dt>
-                  <dd className="font-medium">{stops}</dd>
-                </div>
-                {travelClass ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Requested class</dt>
-                    <dd className="font-medium">{travelClass}</dd>
-                  </div>
-                ) : null}
-              </dl>
+            <>
+              Hide details <ChevronUp className="h-3.5 w-3.5" />
+            </>
+          ) : (
+            <>
+              View details <ChevronDown className="h-3.5 w-3.5" />
+            </>
+          )}
+        </button>
+      ) : null}
 
-              {score != null || reason ? (
-                <div className="rounded-lg border border-border/50 bg-muted/20 p-2.5">
-                  <p className="text-xs font-medium text-foreground/90">
-                    Historical confirmation estimate
-                  </p>
-                  {score != null ? (
-                    <p className="mt-0.5 text-sm">~{score}%</p>
-                  ) : null}
-                  {reason ? (
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{reason}</p>
-                  ) : null}
-                  <p className="mt-1.5 text-[11px] text-muted-foreground/90">
-                    Based on limited historical records — not live seat availability.
-                  </p>
-                </div>
-              ) : null}
-
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Live availability is not connected yet. Timetable data is not live inventory.
-              </p>
-            </div>
-          ) : null}
+      {detailsOpen && !compact ? (
+        <div className="mt-2 space-y-1 rounded-xl border border-border/40 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          <p>
+            Board: {board.name || board.code} ({board.code}) · dep {formatTime(board.departure)}
+          </p>
+          <p>
+            Alight: {alight.name || alight.code} ({alight.code}) · arr {formatTime(alight.arrival)}
+          </p>
+          {train.category ? <p>Category: {train.category}</p> : null}
         </div>
       ) : null}
     </article>

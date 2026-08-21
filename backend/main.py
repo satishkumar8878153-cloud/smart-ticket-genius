@@ -27,6 +27,11 @@ CITY_CLUSTERS = {
     "ranchi": ["RNC"],
     "varanasi": ["BSB", "DDU"],
     "lucknow": ["LKO", "LJN"],
+    "chhapra": ["CPR"],
+    "chapra": ["CPR"],
+    "buxar": ["BXR"],
+    "ara": ["ARA"],
+    "arrah": ["ARA"],
 }
 NEARBY_HUBS = {
     "patna": ["ARA", "BJU", "GAYA", "DDU", "MGS", "KIUL"],
@@ -43,6 +48,11 @@ NEARBY_HUBS = {
     "ranchi": ["GAYA", "PNBE"],
     "varanasi": ["PNBE"],
     "lucknow": ["CNB"],
+    "chhapra": ["PNBE", "ARA", "DDU"],
+    "chapra": ["PNBE", "ARA", "DDU"],
+    "buxar": ["ARA", "PNBE", "DDU", "MGS"],
+    "ara": ["PNBE", "DNR", "DDU"],
+    "arrah": ["PNBE", "DNR", "DDU"],
 }
 """
 

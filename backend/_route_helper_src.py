@@ -20,23 +20,53 @@ def _cluster_and_hubs(query):
     raw = (query or "").strip()
     needle = raw.lower()
     upper_raw = raw.upper().replace(" ", "")
+
+    # Exact city-cluster key (case-insensitive)
+    city_key = needle if needle in CITY_CLUSTERS else None
+
+    # Explicit code intent: known station code in all-caps form, OR known code that is not a city key.
+    # Natural-language city forms (Gaya, gaya) that match a city key → city intent.
+    is_code = False
     looks_like_code = (
         2 <= len(upper_raw) <= 5
         and upper_raw.isalnum()
         and " " not in raw.strip()
     )
-    is_code = False
     if looks_like_code:
+        known_code = False
         for r in fetch_stations(upper_raw, limit=5):
             if str(r.get("code") or "").strip().upper() == upper_raw:
-                is_code = True
+                known_code = True
                 break
+        if known_code:
+            if city_key is not None and raw != upper_raw:
+                is_code = False  # "Gaya" / "gaya" → city
+            elif raw == upper_raw:
+                is_code = True   # "GAYA", "PNBE", "ARA" → code
+            elif city_key is None:
+                is_code = True   # known code, not a city key
+            else:
+                is_code = False
+
     key = None
     if not is_code:
-        for k in sorted(CITY_CLUSTERS.keys(), key=len, reverse=True):
-            if k in needle or needle in k:
-                key = k
-                break
+        if city_key:
+            key = city_key
+        else:
+            for k in sorted(CITY_CLUSTERS.keys(), key=len, reverse=True):
+                if k in needle or needle in k:
+                    key = k
+                    break
+
+    if is_code:
+        return [upper_raw], []
+
+    # City intent: primary = configured cluster stations only (no weak resolver noise)
+    if key and CITY_CLUSTERS.get(key):
+        primary = list(dict.fromkeys(CITY_CLUSTERS[key]))[:5]
+        hubs = NEARBY_HUBS.get(key, []) if key else []
+        return primary, hubs
+
     matches = resolve_stations(query)["matches"]
     primary = []
     seen = set()
@@ -46,14 +76,10 @@ def _cluster_and_hubs(query):
             continue
         seen.add(c)
         primary.append(c)
-    if is_code:
-        primary = [upper_raw]
-        return primary, []
-    if key:
-        primary = list(dict.fromkeys(primary + CITY_CLUSTERS[key]))
-    primary = primary[:5]
+        if len(primary) >= 5:
+            break
     hubs = NEARBY_HUBS.get(key, []) if key else []
-    return primary, hubs
+    return primary[:5], hubs
 
 
 def _route_search_core(source_q, dest_q, travel_class="SL", date_str=None) -> dict:

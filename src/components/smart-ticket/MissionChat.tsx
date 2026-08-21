@@ -1,6 +1,11 @@
 import { Loader2, MessageSquare, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { askMission, type RouteSearchResponse } from "@/lib/api";
+import {
+  askMission,
+  parseJourneyMessage,
+  smartSearch,
+  type RouteSearchResponse,
+} from "@/lib/api";
 import { ResultsList } from "@/components/smart-ticket/ResultsList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,25 +57,57 @@ export function MissionChat({
     setMessages((m) => [...m, userMsg]);
     setSending(true);
     try {
-      const res = await askMission(text);
-      const routePayload = res.route || res.result || null;
-      const trainList =
-        (routePayload?.direct_trains?.length
-          ? routePayload.direct_trains
-          : routePayload?.trains) || [];
-      const trains =
-        routePayload && trainList.length > 0
-          ? { ...routePayload, trains: trainList }
-          : null;
-      setMessages((m) => [
-        ...m,
-        {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          text: res.reply || "I couldn't find a good answer yet.",
-          trains,
-        },
-      ]);
+      // Prefer Smart Search when journey intent is parseable (same engine as SearchForm)
+      const parsed = parseJourneyMessage(text);
+      if (parsed?.from && parsed?.to) {
+        const data = await smartSearch({
+          from: parsed.from,
+          to: parsed.to,
+          journey_date: parsed.journey_date,
+          class_code: parsed.class_code || "SL",
+        });
+        const directN = data.search_summary?.direct_count ?? data.direct_trains?.length ?? 0;
+        const altN = data.search_summary?.alternative_count ?? data.nearby_options?.length ?? 0;
+        const rec = data.recommendation;
+        let reply =
+          directN + altN > 0
+            ? `Found ${directN} direct and ${altN} alternative timetable option${directN + altN === 1 ? "" : "s"} for ${parsed.from} → ${parsed.to}.`
+            : `No trains found in the timetable for ${parsed.from} → ${parsed.to}. Try nearby cities or another date.`;
+        if (rec?.train_number) {
+          reply += `\n\nBest timetable option: ${rec.train_number}`;
+          if (rec.why || rec.reason) reply += ` — ${rec.why || rec.reason}`;
+        }
+        reply += "\n\nTimetable only — not live seat availability.";
+        setMessages((m) => [
+          ...m,
+          {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            text: reply,
+            trains: data.trains?.length ? data : null,
+          },
+        ]);
+      } else {
+        const res = await askMission(text);
+        const routePayload = res.route || res.result || null;
+        const trainList =
+          (routePayload?.direct_trains?.length
+            ? routePayload.direct_trains
+            : routePayload?.trains) || [];
+        const trains =
+          routePayload && trainList.length > 0
+            ? { ...routePayload, trains: trainList }
+            : null;
+        setMessages((m) => [
+          ...m,
+          {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            text: res.reply || "I couldn't find a good answer yet.",
+            trains,
+          },
+        ]);
+      }
     } catch (err) {
       setMessages((m) => [
         ...m,
@@ -88,12 +125,12 @@ export function MissionChat({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side="bottom"
-        className="flex h-[70vh] max-h-[70vh] w-full flex-col gap-0 rounded-t-3xl border-border/60 bg-background p-0 sm:max-w-none"
+        side="right"
+        className="flex w-full max-w-full flex-col border-border/60 bg-background p-0 sm:max-w-md"
       >
-        <SheetHeader className="flex-row items-center gap-2 space-y-0 border-b border-border/60 px-4 py-3 text-left">
-          <SheetTitle className="flex items-center gap-2 text-base font-semibold">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/15 text-indigo-300">
+        <SheetHeader className="border-b border-border/60 px-4 py-3">
+          <SheetTitle className="flex items-center gap-2 text-base">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
               <MessageSquare className="h-4 w-4" />
             </span>
             Mission AI

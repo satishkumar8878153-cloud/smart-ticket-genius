@@ -8,7 +8,7 @@ export function ClassMatrix({ trains }: { trains: TrainRecommendation[] }) {
       <SectionHeader
         icon={<LayoutGrid className="h-4 w-4" />}
         title="All class availability"
-        subtitle="Live seat matrix across all classes"
+        subtitle="Class labels from timetable data — not live seat inventory"
       />
 
       <div className="mt-5 overflow-x-auto">

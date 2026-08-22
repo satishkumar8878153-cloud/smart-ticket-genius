@@ -4,6 +4,7 @@ import type { RouteSearchResponse, RouteTrain } from "@/lib/api";
 import { TrainResultCard } from "@/components/TrainResultCard";
 import { CheckLiveAvailabilityButton } from "@/components/smart-ticket/CheckLiveAvailabilityButton";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const DEFAULT_SUGGESTIONS = [
   "Delhi to Patna",
@@ -69,12 +70,13 @@ function collectTrains(data: RouteSearchResponse | null): {
 function categoryLabel(cat?: string | null): string | null {
   if (!cat) return null;
   const c = cat.toLowerCase();
-  if (c === "direct") return "DIRECT";
-  if (c === "nearby_origin") return "NEARBY ORIGIN";
-  if (c === "nearby_destination") return "NEARBY DESTINATION";
-  if (c.startsWith("hub")) return "HUB";
-  if (c === "alternative") return "ALTERNATIVE";
-  return cat.replace(/_/g, " ").toUpperCase();
+  if (c === "direct") return "Direct";
+  if (c === "nearby_origin") return "Nearby boarding station";
+  if (c === "nearby_destination") return "Nearby destination";
+  if (c === "hub_origin" || c === "hub_destination" || c === "hub")
+    return "Major junction alternative";
+  if (c === "alternative") return "Alternative";
+  return cat.replace(/_/g, " ");
 }
 
 function SkeletonCard() {
@@ -250,14 +252,17 @@ export function ResultsList({
           compact ? "mt-2" : "mt-6",
         )}
       >
-        <p className="text-base font-semibold text-foreground">No direct trains found.</p>
+        <p className="text-base font-semibold text-foreground">No direct timetable option found.</p>
         <p className="mt-1 text-sm text-muted-foreground">
           {src && dst
-            ? `We could not find a direct train for ${src} → ${dst} in the timetable.`
+            ? `No direct timetable path for ${src} → ${dst} in our schedule data.`
             : "Try a different pair of stations or date."}
         </p>
+        <p className="mt-1 text-xs text-muted-foreground/80">
+          Live seat availability is not connected — this is timetable search only.
+        </p>
         <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Try nearby major stations
+          Try another station pair
         </p>
         <ul className="mt-2 flex flex-wrap gap-2">
           {suggestions.map((s) => {
@@ -311,27 +316,44 @@ export function ResultsList({
             )}
             {data.search_summary ? (
               <div className="mt-2 rounded-xl border border-border/50 bg-background/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                <p className="font-medium text-foreground/90">Smart Search checked:</p>
+                <p className="font-medium text-foreground/90">Why these trains?</p>
                 <ul className="mt-1 list-inside list-disc space-y-0.5">
                   {(data.search_summary.origin_primary?.length ?? 0) > 0 ? (
-                    <li>{data.search_summary.origin_primary!.length} origin stations</li>
+                    <li>
+                      {data.search_summary.origin_primary!.length} boarding stations checked
+                      near your origin
+                    </li>
                   ) : null}
                   {(data.search_summary.destination_primary?.length ?? 0) > 0 ? (
-                    <li>{data.search_summary.destination_primary!.length} destination stations</li>
+                    <li>
+                      {data.search_summary.destination_primary!.length} destination stations
+                      checked
+                    </li>
                   ) : null}
                   {((data.search_summary.origin_hubs_used?.length ?? 0) +
                     (data.search_summary.destination_hubs_used?.length ?? 0)) > 0 ? (
                     <li>
                       {(data.search_summary.origin_hubs_used?.length ?? 0) +
-                        (data.search_summary.destination_hubs_used?.length ?? 0)} nearby hubs
+                        (data.search_summary.destination_hubs_used?.length ?? 0)}{" "}
+                      major junction alternatives checked
                     </li>
                   ) : null}
                 </ul>
                 <p className="mt-1.5">
-                  Found: {data.search_summary.direct_count ?? 0} direct
+                  {(data.search_summary.direct_count ?? 0) > 0
+                    ? `${data.search_summary.direct_count} direct timetable option${
+                        (data.search_summary.direct_count ?? 0) === 1 ? "" : "s"
+                      }`
+                    : "No direct timetable option"}
                   {(data.search_summary.alternative_count ?? 0) > 0
-                    ? ` · ${data.search_summary.alternative_count} alternatives`
+                    ? ` · ${data.search_summary.alternative_count} alternative${
+                        (data.search_summary.alternative_count ?? 0) === 1 ? "" : "s"
+                      }`
                     : ""}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground/80">
+                  Timetable ranking only — not live seat availability; operating day not
+                  verified.
                 </p>
               </div>
             ) : null}
@@ -402,7 +424,7 @@ export function ResultsList({
             <p className="mt-1 text-[10px] text-muted-foreground/80">
               Timetable ranking only — not live seat availability.
             </p>
-            <div className="mt-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
               <CheckLiveAvailabilityButton
                 compact
                 journey={{
@@ -414,6 +436,42 @@ export function ResultsList({
                   travelClass: data.recommendation.requested_class?.class,
                 }}
               />
+              <button
+                type="button"
+                className="h-8 shrink-0 rounded-xl border border-border/70 bg-background/50 px-2.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                onClick={async () => {
+                  const rec = data.recommendation;
+                  if (!rec) return;
+                  const lines = [
+                    "Smart Ticket Genius recommendation",
+                    [src, dst].filter(Boolean).join(" → ") || undefined,
+                    [
+                      rec.train_number ? `Train: ${rec.train_number}` : null,
+                      rec.train_name || null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined,
+                    rec.board?.code && rec.alight?.code
+                      ? `Board: ${rec.board.code} → ${rec.alight.code}`
+                      : undefined,
+                    journeyDate ? `Date: ${journeyDate}` : undefined,
+                    rec.requested_class?.class
+                      ? `Class: ${rec.requested_class.class}`
+                      : undefined,
+                    "Timetable recommendation only.",
+                    "Live availability is not connected.",
+                  ].filter(Boolean) as string[];
+                  const text = lines.join("\n");
+                  try {
+                    await navigator.clipboard.writeText(text);
+                    toast.success("Recommendation copied");
+                  } catch {
+                    toast.message("Could not copy — select and copy manually");
+                  }
+                }}
+              >
+                Copy recommendation
+              </button>
             </div>
           </div>
         ) : null}

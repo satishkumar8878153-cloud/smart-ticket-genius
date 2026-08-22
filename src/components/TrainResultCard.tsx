@@ -63,8 +63,6 @@ export function TrainResultCard({
   const stops = train.stops_between ?? 0;
   const classes = train.classes || {};
   const travelClass = train.requested_class?.class;
-  const score = train.requested_class?.score;
-  const reason = train.requested_class?.reason;
   const trainName = (train.train_name || "").trim() || null;
 
   return (
@@ -113,63 +111,41 @@ export function TrainResultCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            From
-          </p>
-          <p className="mt-0.5 text-lg font-semibold tabular-nums sm:text-xl">
-            {formatTime(board.departure)}
-          </p>
-          <p className="truncate text-sm font-medium text-foreground">
-            {board.name || board.code}
-          </p>
-          <p className="text-xs text-muted-foreground">{board.code}</p>
-        </div>
-        <div className="flex flex-col items-center justify-center pt-4">
-          <ArrowRight className="h-4 w-4 text-muted-foreground" />
-          <p className="mt-1 text-center text-[11px] text-muted-foreground">
-            {formatDuration(train.duration_minutes)}
-          </p>
-          {dayPlus ? (
-            <p className="text-[10px] font-medium text-amber-300">+1 day</p>
-          ) : null}
-        </div>
-        <div className="min-w-0 text-right">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            To
-          </p>
-          <p className="mt-0.5 text-lg font-semibold tabular-nums sm:text-xl">
-            {formatTime(alight.arrival)}
-          </p>
-          <p className="truncate text-sm font-medium text-foreground">
-            {alight.name || alight.code}
-          </p>
-          <p className="text-xs text-muted-foreground">{alight.code}</p>
-        </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+        <span className="font-medium tabular-nums">
+          {formatTime(board.departure)}
+        </span>
+        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-medium tabular-nums">
+          {formatTime(alight.arrival)}
+          {dayPlus ? <span className="ml-1 text-xs text-amber-300">+1</span> : null}
+        </span>
+        <span className="text-muted-foreground">·</span>
+        <span className="text-muted-foreground">{formatDuration(train.duration_minutes)}</span>
+        <span className="text-muted-foreground">·</span>
+        <span className="text-muted-foreground">
+          {stops} stop{stops === 1 ? "" : "s"}
+        </span>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
         <span>
-          {stops} {stops === 1 ? "stop" : "stops"}
+          {board.code}
+          {board.name ? ` · ${board.name}` : ""}
         </span>
-        {train.note ? (
-          <>
-            <span aria-hidden className="text-border">
-              ·
-            </span>
-            <span className="text-amber-300/90">{train.note}</span>
-          </>
-        ) : null}
-        {train.why && train.why !== train.note ? (
-          <>
-            <span aria-hidden className="text-border">
-              ·
-            </span>
-            <span className="text-muted-foreground">{train.why}</span>
-          </>
-        ) : null}
+        <span>→</span>
+        <span>
+          {alight.code}
+          {alight.name ? ` · ${alight.name}` : ""}
+        </span>
       </div>
+
+      {train.why && train.why !== train.note ? (
+        <p className="mt-2 text-xs leading-snug text-muted-foreground">
+          <span className="font-medium text-foreground/80">Why: </span>
+          <span className="text-muted-foreground">{train.why}</span>
+        </p>
+      ) : null}
 
       {!compact && Object.keys(classes).length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -188,17 +164,14 @@ export function TrainResultCard({
         </div>
       ) : null}
 
-      {travelClass && score != null ? (
+      {travelClass ? (
         <div className="mt-3 rounded-xl border border-border/50 bg-background/40 px-3 py-2">
           <p className="text-[11px] font-medium text-muted-foreground">
-            Confirmation estimate ({travelClass})
+            Preferred class: {travelClass}
           </p>
-          <p className="text-sm font-semibold tabular-nums text-foreground">{score}%</p>
-          {reason ? (
-            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{reason}</p>
-          ) : null}
-          <p className="mt-1 text-[10px] text-muted-foreground/80">
-            Historical estimate from limited PNR records — not live availability.
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+            Timetable option only — live seat availability is not connected. Check official
+            IRCTC for current availability.
           </p>
         </div>
       ) : null}

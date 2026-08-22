@@ -55,8 +55,8 @@ function Home() {
             Find the right train, faster.
           </h1>
           <p className="mx-auto mt-2 max-w-lg text-pretty text-sm text-muted-foreground sm:text-base">
-            Search the timetable across 8,993 stations and 5,208 trains. Live seat availability is
-            not connected yet.
+            Search the railway timetable across major stations and trains. Live seat availability is
+            not connected yet — check official IRCTC for current availability.
           </p>
 
           <button

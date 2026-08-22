@@ -1,4 +1,4 @@
-import { Loader2, MessageSquare, Send } from "lucide-react";
+import { ArrowLeft, Loader2, MessageSquare, Send, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   askMission,
@@ -11,10 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 
 type ChatMessage = {
   id: string;
@@ -126,33 +128,74 @@ export function MissionChat({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-full max-w-full flex-col border-border/60 bg-background p-0 sm:max-w-md"
+        className={cn(
+          // Base: column layout, no default sheet padding
+          "flex flex-col gap-0 overflow-hidden bg-background p-0 shadow-xl",
+          // Mobile (<sm): true full-screen — not a partial right drawer
+          "inset-0 h-[100dvh] w-screen max-w-none rounded-none border-0",
+          // Override sheetVariants w-3/4 / sm:max-w-sm on all breakpoints
+          "!w-screen max-w-none",
+          // Desktop: polished right panel
+          "sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:!w-full sm:max-w-md sm:border-l sm:border-border/60",
+          // Hide the default tiny absolute X; we render a larger header close control
+          "[&>button.absolute]:hidden",
+        )}
       >
-        <SheetHeader className="border-b border-border/60 px-4 py-3">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
-              <MessageSquare className="h-4 w-4" />
-            </span>
-            Mission AI
-          </SheetTitle>
+        <SheetHeader className="sticky top-0 z-10 shrink-0 border-b border-border/60 bg-background/95 px-3 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
+          <div className="flex items-center gap-2">
+            <SheetClose asChild>
+              <button
+                type="button"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Close Mission AI"
+              >
+                <ArrowLeft className="h-5 w-5 sm:hidden" />
+                <X className="hidden h-5 w-5 sm:block" />
+              </button>
+            </SheetClose>
+            <SheetTitle className="flex min-w-0 flex-1 items-center gap-2 text-left text-base font-semibold">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
+                <MessageSquare className="h-4 w-4" />
+              </span>
+              <span className="truncate">Mission AI</span>
+            </SheetTitle>
+            {/* Extra close on mobile for easy reach */}
+            <SheetClose asChild>
+              <button
+                type="button"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </SheetClose>
+          </div>
+          <p className="sr-only">Tell Mission AI your journey in plain language.</p>
         </SheetHeader>
 
-        <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        <div
+          ref={listRef}
+          className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 sm:px-4"
+        >
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              className={cn(
+                "flex",
+                msg.role === "user" ? "justify-end" : "justify-start",
+              )}
             >
               <div
-                className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                className={cn(
+                  "min-w-0 max-w-[min(100%,28rem)] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
                   msg.role === "user"
                     ? "bg-indigo-600 text-white"
-                    : "border border-border/60 bg-muted/40 text-foreground"
-                }`}
+                    : "w-full max-w-full border border-border/60 bg-muted/40 text-foreground",
+                )}
               >
-                <p className="whitespace-pre-wrap">{msg.text}</p>
+                <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                 {msg.trains ? (
-                  <div className="mt-2 w-full min-w-0 max-w-full [&_.mt-6]:mt-2">
+                  <div className="mt-2 w-full min-w-0 max-w-full overflow-x-hidden [&_.mt-6]:mt-2">
                     <ResultsList data={msg.trains} compact />
                   </div>
                 ) : null}
@@ -170,7 +213,7 @@ export function MissionChat({
           <div ref={bottomRef} />
         </div>
 
-        <div className="border-t border-border/60 p-3">
+        <div className="shrink-0 border-t border-border/60 bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md supports-[backdrop-filter]:bg-background/90">
           <form
             className="flex items-center gap-2"
             onSubmit={(e) => {
@@ -181,9 +224,9 @@ export function MissionChat({
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="e.g. Bhagalpur to Patna tomorrow in SL"
+              placeholder="Tell me your journey…"
               disabled={sending}
-              className="h-11 flex-1 rounded-xl border-border/60 bg-background/70"
+              className="h-11 min-w-0 flex-1 rounded-xl border-border/60 bg-background/70 text-base sm:text-sm"
             />
             <Button
               type="submit"

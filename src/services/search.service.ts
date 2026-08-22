@@ -12,10 +12,9 @@ import type {
   TrainRow,
 } from "./types";
 
-// ------ Availability helpers (used when no FastAPI/ML backend is wired yet).
-// Trains themselves come from the database — this layer only synthesises
-// seat availability numbers deterministically until a real availability API
-// (IRCTC / FastAPI ML service) is connected.
+// ------ Availability placeholders (NO live inventory).
+// Production SearchForm / Mission AI use POST /smart-search only.
+// This module must never invent AVL/RAC/WL numbers.
 
 const CLASS_CODES: TicketClass[] = ["SL", "3A", "2A", "1A", "CC", "EC"];
 
@@ -34,25 +33,21 @@ function seed(str: string) {
   };
 }
 
+// Live seat inventory is NOT connected. Never synthesise AVL/RAC/WL for production UI.
 const STATUS = {
-  available: (n: number): SeatStatus => ({ label: `AVL ${n}`, tone: "success" }),
-  rac: (n: number): SeatStatus => ({ label: `RAC ${n}`, tone: "warning" }),
-  waitlist: (n: number): SeatStatus => ({ label: `WL ${n}`, tone: "danger" }),
+  /** Neutral placeholder — not live railway availability. */
+  unknown: (): SeatStatus => ({ label: "Timetable only", tone: "muted" }),
   na: (): SeatStatus => ({ label: "—", tone: "muted" }),
 };
 
-function randStatus(r: () => number, bias = 0): SeatStatus {
-  const v = r() + bias;
-  if (v < 0.35) return STATUS.available(Math.floor(r() * 120) + 5);
-  if (v < 0.6) return STATUS.rac(Math.floor(r() * 40) + 1);
-  if (v < 0.9) return STATUS.waitlist(Math.floor(r() * 90) + 5);
-  return STATUS.na();
+function safeStatus(_r?: () => number, _bias = 0): SeatStatus {
+  return STATUS.unknown();
 }
 
-function buildAvailability(r: () => number, bias = 0): ClassAvailability {
+function buildAvailability(_r?: () => number, _bias = 0): ClassAvailability {
   const out = {} as ClassAvailability;
-  CLASS_CODES.forEach((c, i) => {
-    out[c] = randStatus(r, bias + i * 0.05);
+  CLASS_CODES.forEach((c) => {
+    out[c] = STATUS.unknown();
   });
   return out;
 }
@@ -98,17 +93,14 @@ export async function fetchTrainsForRoute(source: string, destination: string): 
   const srcTokens = stationTokens(source, stations);
   const dstTokens = stationTokens(destination, stations);
 
-  // 1. Exact route match (origin + destination).
   const exact = rows.filter(
     (t) => tokenMatches(t.source_code, srcTokens) && tokenMatches(t.destination_code, dstTokens),
   );
   if (exact.length > 0) return exact;
 
-  // 2. Partial match: at least the origin is served.
   const partial = rows.filter((t) => tokenMatches(t.source_code, srcTokens));
   return partial;
 }
-
 
 async function logSearch(query: SearchQuery) {
   try {
@@ -133,11 +125,8 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
       void logSearch(query);
       return result;
     } catch (err) {
-      // Any FastAPI failure (including "no trains found") falls through to the
-      // database path — the remote service may simply have no DB connection.
       console.warn("FastAPI /search unavailable, falling back to database", err);
     }
-
   }
 
   const trainRows = await fetchTrainsForRoute(query.source, query.destination);
@@ -145,14 +134,13 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
     throw new ApiError("No trains found for this route yet. Try nearby major stations.", 404);
   }
 
-
   const r = seed(
     `${query.source}-${query.destination}-${query.date}-${query.travelClass}`,
   );
 
   const trains: TrainRecommendation[] = trainRows.map((t, i) => {
-    const confirm = Math.round(55 + r() * 44);
-    const score = Math.round(60 + r() * 39);
+    const confirm = 0;
+    const score = Math.max(0, 70 - i * 3);
     return {
       trainName: t.train_name,
       trainNumber: t.train_number,
@@ -164,8 +152,8 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
       bestClass: query.travelClass,
       reason:
         i === 0
-          ? `High confirm probability in ${query.travelClass}, strong on-time record, and best overall arrival window.`
-          : `Consistent availability and competitive travel time on the ${query.source} → ${query.destination} corridor.`,
+          ? `Timetable option in ${query.travelClass}. Live seat availability is not connected.`
+          : `Additional timetable option on ${query.source} → ${query.destination}. Not live availability.`,
       availability: buildAvailability(r, i === 0 ? -0.15 : 0),
     };
   });
@@ -185,7 +173,7 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
     name: `${query.source} ${n}`,
     distanceKm: Math.round(8 + r() * 55),
     extraTravel: `${Math.round(15 + r() * 40)} min`,
-    availability: randStatus(r, -0.2),
+    availability: safeStatus(r, -0.2),
   }));
 
   const today = new Date(query.date || Date.now());
@@ -195,16 +183,15 @@ export async function searchTrains(query: SearchQuery): Promise<SearchResult> {
     return {
       date: d.toISOString().slice(0, 10),
       weekday: d.toLocaleDateString(undefined, { weekday: "short" }),
-      status: randStatus(r, i === 0 ? 0.1 : -0.1),
+      status: safeStatus(r, i === 0 ? 0.1 : -0.1),
       fare: Math.round(950 + r() * 2400),
     };
   });
 
   const aiInsights = [
-    `Historical data shows ${best.trainName} confirms ${best.confirmProbability}% of ${query.travelClass} bookings on this route.`,
-    `Booking 4 days earlier boosts confirmation probability by an estimated ~18%.`,
-    `${alternateStations[0].name} offers better ${query.travelClass} availability with only ${alternateStations[0].extraTravel} extra travel.`,
-    `Traveling on ${alternateDates[3].weekday} typically has lower demand than weekends.`,
+    `Showing timetable options only — live seat availability is not connected.`,
+    `Use official IRCTC to check current availability for ${query.travelClass}.`,
+    `Operating day for the selected date is not verified in this prototype.`,
   ];
 
   void logSearch(query);

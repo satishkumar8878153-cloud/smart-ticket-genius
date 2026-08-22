@@ -1,6 +1,7 @@
 import { ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import type { RouteTrain } from "@/lib/api";
+import { CheckLiveAvailabilityButton } from "@/components/smart-ticket/CheckLiveAvailabilityButton";
 import { cn } from "@/lib/utils";
 
 function toneClass(tone?: string) {
@@ -40,6 +41,8 @@ export type TrainResultCardProps = {
   rankLabel?: string | null;
   /** Smart Search category badge: DIRECT / NEARBY ORIGIN / HUB … */
   categoryLabel?: string | null;
+  /** Journey date (YYYY-MM-DD) from search — used only for IRCTC clipboard helper */
+  journeyDate?: string | null;
   compact?: boolean;
   className?: string;
 };
@@ -49,6 +52,7 @@ export function TrainResultCard({
   recommended = false,
   rankLabel = null,
   categoryLabel = null,
+  journeyDate = null,
   compact = false,
   className,
 }: TrainResultCardProps) {
@@ -228,6 +232,20 @@ export function TrainResultCard({
           {train.category ? <p>Category: {train.category}</p> : null}
         </div>
       ) : null}
+
+      <div className="mt-3">
+        <CheckLiveAvailabilityButton
+          compact={compact}
+          journey={{
+            trainNumber: train.train_number,
+            trainName,
+            fromCode: board.code && board.code !== "?" ? board.code : null,
+            toCode: alight.code && alight.code !== "?" ? alight.code : null,
+            journeyDate,
+            travelClass: travelClass || null,
+          }}
+        />
+      </div>
     </article>
   );
 }

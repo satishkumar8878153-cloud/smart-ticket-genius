@@ -13,6 +13,7 @@ _client: Client | None = None
 _PNR_STATS_CACHE: dict[tuple[str, str, str], tuple[float, dict | None]] = {}
 _PNR_STATS_TTL_SEC = 300.0
 _TRAIN_NAMES_CACHE: dict[str, str] | None = None
+_STATIC_TRAIN_NAMES: dict[str, str] | None = None
 _STOPS_CACHE: dict[str, tuple[float, list]] = {}
 _STOPS_TTL_SEC = 600.0
 _STATION_NAME_CACHE: dict[str, tuple[float, str]] = {}
@@ -280,28 +281,61 @@ def fetch_train_stops_for_stations(
     return all_rows
 
 
+def _load_static_train_names() -> dict[str, str]:
+    """Offline DataMeet train names (bundled). Used only to fill gaps in DB."""
+    global _STATIC_TRAIN_NAMES
+    if _STATIC_TRAIN_NAMES is not None:
+        return _STATIC_TRAIN_NAMES
+    names: dict[str, str] = {}
+    try:
+        from pathlib import Path
+        import json
+
+        path = Path(__file__).resolve().parent / "data" / "train_names.json"
+        if path.is_file():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    tn = str(k).strip()
+                    nm = str(v or "").strip()
+                    if tn and nm:
+                        names[tn] = nm
+    except Exception:
+        names = {}
+    _STATIC_TRAIN_NAMES = names
+    return names
+
+
 def fetch_train_names(client) -> dict[str, str]:
+    """Train number → name. DB first, then static DataMeet fallback for gaps."""
     global _TRAIN_NAMES_CACHE
     if _TRAIN_NAMES_CACHE is not None:
         return _TRAIN_NAMES_CACHE
     names: dict[str, str] = {}
     offset = 0
-    while True:
-        resp = (
-            client.table("trains")
-            .select("train_number,train_name")
-            .range(offset, offset + 999)
-            .execute()
-        )
-        rows = resp.data or []
-        for r in rows:
-            tn = str(r.get("train_number") or "").strip()
-            nm = (r.get("train_name") or "").strip()
-            if tn and nm:
-                names[tn] = nm
-        if len(rows) < 1000:
-            break
-        offset += 1000
+    try:
+        while True:
+            resp = (
+                client.table("trains")
+                .select("train_number,train_name")
+                .range(offset, offset + 999)
+                .execute()
+            )
+            rows = resp.data or []
+            for r in rows:
+                tn = str(r.get("train_number") or "").strip()
+                nm = (r.get("train_name") or "").strip()
+                if tn and nm:
+                    names[tn] = nm
+            if len(rows) < 1000:
+                break
+            offset += 1000
+    except Exception:
+        pass
+    # Fill gaps from bundled DataMeet names (same open source as stop schedules)
+    for tn, nm in _load_static_train_names().items():
+        if tn not in names:
+            names[tn] = nm
     _TRAIN_NAMES_CACHE = names
     return names
 

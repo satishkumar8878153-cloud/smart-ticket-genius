@@ -54,36 +54,40 @@ def recommend_why(row: dict, oq: str, dq: str) -> str:
     o_role = rel.get("origin_role") or "other"
     d_role = rel.get("dest_role") or "other"
     honesty = (
-        " Timetable only - live availability is not connected; "
+        " Timetable only — live availability is not connected; "
         "operating day is not verified."
     )
     if cat == "direct" and o_role == "primary" and d_role == "primary":
         core = (
-            f"Recommended: direct {sc} → {dc}"
-            + (f" with one of the shortest timetable durations ({dt})." if dt else ".")
+            f"Recommended because it is a direct train {sc} → {dc}"
+            + (
+                f" with one of the shortest journey times ({dt})."
+                if dt
+                else "."
+            )
         )
-    elif o_role == "sibling":
+    elif o_role == "sibling" or cat == "nearby_origin":
         core = (
-            f'Recommended alternative: board at {sc} (nearby/same-city as "{oq}") '
+            f'Alternative: boarding from {sc} (nearby station for "{oq}") '
             f"to {dc}"
-            + (f" ({dt} timetable)." if dt else ".")
+            + (f" ({dt})." if dt else ".")
         )
-    elif d_role == "sibling":
+    elif d_role == "sibling" or cat == "nearby_destination":
         core = (
-            f"Recommended alternative: {sc} → {dc} "
-            f'(nearby terminal for "{dq}")'
-            + (f", {dt} timetable." if dt else ".")
+            f"Alternative: {sc} → {dc} "
+            f'(nearby destination for "{dq}")'
+            + (f", {dt}." if dt else ".")
         )
     elif o_role == "hub" or cat in ("hub_origin", "hub", "hub_destination"):
         core = (
-            f"Recommended alternative: {sc} → {dc} is a hub option because "
-            f"strong direct options were limited"
-            + (f" ({dt} timetable)." if dt else ".")
+            f"Major junction alternative: {sc} → {dc} — "
+            f"direct options were limited"
+            + (f" ({dt})." if dt else ".")
         )
     else:
         core = (
             f"Recommended: {sc} → {dc}"
-            + (f" ({dt} timetable)." if dt else ".")
+            + (f" ({dt})." if dt else ".")
         )
     return core + honesty
 
@@ -127,9 +131,31 @@ def score_v2(row: dict) -> tuple[float, dict]:
     s_hist = min(5.0, max(0.0, raw_hist * 0.05))
     s_operating = 0.0
     s_live = 0.0
+    # Data-quality: incomplete timetable should not outrank clean rows
+    s_data_quality = 0.0
+    if dep is None:
+        s_data_quality -= 35.0
+    if arr is None:
+        s_data_quality -= 35.0
+    if dur is None or (isinstance(dur, (int, float)) and dur <= 0):
+        s_data_quality -= 60.0
+    board = row.get("board") or {}
+    alight = row.get("alight") or {}
+    if not (board.get("code") or "").strip():
+        s_data_quality -= 25.0
+    if not (alight.get("code") or "").strip():
+        s_data_quality -= 25.0
     total = (
-        s_category + s_duration + s_stops + s_timeband
-        + s_station_fit + s_relation + s_hist + s_operating + s_live
+        s_category
+        + s_duration
+        + s_stops
+        + s_timeband
+        + s_station_fit
+        + s_relation
+        + s_hist
+        + s_operating
+        + s_live
+        + s_data_quality
     )
     breakdown = {
         "category": round(s_category, 2),
@@ -141,6 +167,7 @@ def score_v2(row: dict) -> tuple[float, dict]:
         "historical": round(s_hist, 2),
         "operating": round(s_operating, 2),
         "live": round(s_live, 2),
+        "data_quality": round(s_data_quality, 2),
         "total": round(total, 2),
     }
     return total, breakdown

@@ -39,7 +39,7 @@ export type TrainResultCardProps = {
   recommended?: boolean;
   /** Optional rank badge from client sort, e.g. "Earliest" */
   rankLabel?: string | null;
-  /** Smart Search category badge: DIRECT / NEARBY ORIGIN / HUB … */
+  /** Smart Search category badge: Direct / Nearby boarding / Major junction … */
   categoryLabel?: string | null;
   /** Journey date (YYYY-MM-DD) from search — used only for IRCTC clipboard helper */
   journeyDate?: string | null;
@@ -91,9 +91,9 @@ export function TrainResultCard({
             {categoryLabel ? (
               <span
                 className={
-                  categoryLabel === "DIRECT"
+                  categoryLabel === "Direct"
                     ? "rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300"
-                    : categoryLabel === "HUB"
+                    : categoryLabel === "Major junction alternative"
                       ? "rounded-full border border-violet-500/40 bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-200"
                       : "rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-200"
                 }

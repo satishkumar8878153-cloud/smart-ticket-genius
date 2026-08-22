@@ -282,24 +282,74 @@ def fetch_train_stops_for_stations(
 
 
 def _load_static_train_names() -> dict[str, str]:
-    """Offline DataMeet train names (bundled). Used only to fill gaps in DB."""
+    """DataMeet train names: local bundle first, then one-time HTTP fetch.
+
+    Source: https://github.com/datameet/railways (trains.json) — same open
+    dataset used for stop schedules. Used only to fill gaps when the DB
+    trains table lacks a name. Never invents names.
+    """
     global _STATIC_TRAIN_NAMES
     if _STATIC_TRAIN_NAMES is not None:
         return _STATIC_TRAIN_NAMES
     names: dict[str, str] = {}
     try:
         from pathlib import Path
+        import importlib.util
         import json
 
-        path = Path(__file__).resolve().parent / "data" / "train_names.json"
-        if path.is_file():
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
+        data_dir = Path(__file__).resolve().parent / "data"
+        # 1) Local compressed blob if present
+        blob = data_dir / "train_names_blob.py"
+        if blob.is_file():
+            try:
+                spec = importlib.util.spec_from_file_location("train_names_blob", blob)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    loaded = getattr(mod, "load_train_names", None)
+                    if callable(loaded):
+                        candidate = loaded() or {}
+                        if isinstance(candidate, dict):
+                            for k, v in candidate.items():
+                                tn = str(k).strip()
+                                nm = str(v or "").strip()
+                                if tn and nm:
+                                    names[tn] = nm
+            except Exception:
+                pass
+        # 2) Local JSON shards
+        for pattern in ("train_names*.json", "tn_*.json"):
+            for path in sorted(data_dir.glob(pattern)):
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not isinstance(raw, dict):
+                    continue
                 for k, v in raw.items():
                     tn = str(k).strip()
                     nm = str(v or "").strip()
-                    if tn and nm:
+                    if tn and nm and tn not in names:
                         names[tn] = nm
+        # 3) One-time fetch from audited DataMeet source (cached in-process)
+        if len(names) < 1000:
+            try:
+                import urllib.request
+                url = (
+                    "https://raw.githubusercontent.com/datameet/railways/"
+                    "master/trains.json"
+                )
+                with urllib.request.urlopen(url, timeout=60) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                feats = payload.get("features") if isinstance(payload, dict) else []
+                for f in feats or []:
+                    props = (f or {}).get("properties") or {}
+                    tn = str(props.get("number") or props.get("train_number") or "").strip()
+                    nm = str(props.get("name") or props.get("train_name") or "").strip()
+                    if tn and nm and tn not in names:
+                        names[tn] = nm
+            except Exception:
+                pass
     except Exception:
         names = {}
     _STATIC_TRAIN_NAMES = names

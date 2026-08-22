@@ -500,8 +500,8 @@ export function ResultsList({
 
       {!compact ? (
         <p className="text-[11px] leading-relaxed text-muted-foreground/80">
-          Timetable data is not live seat inventory. Any confirmation figures are historical
-          estimates from limited records — not live availability.
+          Timetable data only — live seat availability is not connected. Use official IRCTC to
+          check current availability.
         </p>
       ) : null}
     </div>

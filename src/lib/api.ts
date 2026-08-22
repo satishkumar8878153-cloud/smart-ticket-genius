@@ -228,6 +228,105 @@ export async function smartSearch(payload: {
   return normalizeSmartSearch(raw);
 }
 
+/** Normalize class tokens to IRCTC-style codes. */
+function normalizeClassCode(raw?: string | null): string | undefined {
+  if (!raw) return undefined;
+  const u = raw.trim().toUpperCase().replace(/\s+/g, "");
+  if (!u) return undefined;
+  if (u === "SLEEPER" || u === "SL") return "SL";
+  if (u === "3AC" || u === "3A") return "3A";
+  if (u === "2AC" || u === "2A") return "2A";
+  if (u === "1AC" || u === "1A") return "1A";
+  if (u === "CC" || u === "EC" || u === "2S") return u;
+  return undefined;
+}
+
+const MONTH_MAP: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+/** Pick ISO date; if year omitted, use current year or next if already past. */
+function resolveYmd(y: number | null, month: number, day: number, now = new Date()): string | undefined {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let year = y ?? today.getFullYear();
+  let candidate = new Date(year, month - 1, day);
+  if (candidate.getMonth() !== month - 1 || candidate.getDate() !== day) return undefined;
+  if (y == null) {
+    const candDay = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate());
+    if (candDay < today) {
+      year += 1;
+      candidate = new Date(year, month - 1, day);
+    }
+  }
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+function parseNaturalDate(token: string, now = new Date()): string | undefined {
+  const raw = token.trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if (lower === "today") {
+    return now.toISOString().slice(0, 10);
+  }
+  if (lower === "tomorrow") {
+    const t = new Date(now);
+    t.setDate(t.getDate() + 1);
+    return t.toISOString().slice(0, 10);
+  }
+  if (lower === "day after tomorrow" || lower === "day-after-tomorrow") {
+    const t = new Date(now);
+    t.setDate(t.getDate() + 2);
+    return t.toISOString().slice(0, 10);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  // 25/08/2026 or 25-08-2026 or 25/08/26
+  const slash = raw.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+  if (slash) {
+    const day = Number(slash[1]);
+    const month = Number(slash[2]);
+    let year: number | null = null;
+    if (slash[3]) {
+      year = Number(slash[3].length === 2 ? `20${slash[3]}` : slash[3]);
+    }
+    return resolveYmd(year, month, day, now);
+  }
+  // 25 August / 25 Aug 2026 / August 25 2026
+  const named = raw.match(
+    /^(?:(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(\d{4}))?|([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?)$/i,
+  );
+  if (named) {
+    if (named[1] && named[2]) {
+      const day = Number(named[1]);
+      const month = MONTH_MAP[named[2].toLowerCase()];
+      const year = named[3] ? Number(named[3]) : null;
+      if (month) return resolveYmd(year, month, day, now);
+    }
+    if (named[4] && named[5]) {
+      const month = MONTH_MAP[named[4].toLowerCase()];
+      const day = Number(named[5]);
+      const year = named[6] ? Number(named[6]) : null;
+      if (month) return resolveYmd(year, month, day, now);
+    }
+  }
+  return undefined;
+}
+
 /** Lightweight NL parse for Mission AI → smart-search (frontend only). */
 export function parseJourneyMessage(message: string): {
   from?: string;
@@ -235,58 +334,73 @@ export function parseJourneyMessage(message: string): {
   journey_date?: string;
   class_code?: string;
 } | null {
-  const text = (message || "").trim();
+  let text = (message || "").trim();
   if (!text) return null;
-  const m = text.match(
-    /^(.+?)\s+(?:to|→|->)\s+(.+?)(?:\s+(?:on\s+)?(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\d{4}-\d{2}-\d{2}|tomorrow|today))?(?:\s+(?:in\s+)?(SL|3A|2A|1A|CC|EC|3AC|2AC|1AC|sleeper))?\s*$/i,
+
+  // Strip trailing class tokens first
+  let class_code: string | undefined;
+  const classTail = text.match(
+    /(?:\s+(?:in\s+)?|\s+)(SL|3A|2A|1A|CC|EC|2S|3AC|2AC|1AC|sleeper)\s*$/i,
   );
-  if (!m) return null;
-  let from = m[1].trim();
-  let to = m[2].trim();
-  to = to.replace(/\s+(in\s+)?(SL|3A|2A|1A|CC|EC|3AC|2AC|1AC|sleeper)\s*$/i, "").trim();
-  let journey_date: string | undefined;
-  const rawDate = m[3]?.trim();
-  if (rawDate) {
-    const lower = rawDate.toLowerCase();
-    const today = new Date();
-    if (lower === "today") {
-      journey_date = today.toISOString().slice(0, 10);
-    } else if (lower === "tomorrow") {
-      const t = new Date(today);
-      t.setDate(t.getDate() + 1);
-      journey_date = t.toISOString().slice(0, 10);
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-      journey_date = rawDate;
-    } else {
-      const parts = rawDate.split(/[\/\-]/);
-      if (parts.length >= 2) {
-        const d = parts[0].padStart(2, "0");
-        const mo = parts[1].padStart(2, "0");
-        const y = parts[2]
-          ? parts[2].length === 2
-            ? `20${parts[2]}`
-            : parts[2]
-          : String(today.getFullYear());
-        journey_date = `${y}-${mo}-${d}`;
-      }
-    }
+  if (classTail) {
+    class_code = normalizeClassCode(classTail[1]);
+    text = text.slice(0, classTail.index).trim();
   }
-  let class_code = m[4]?.toUpperCase();
-  if (class_code === "3AC") class_code = "3A";
-  if (class_code === "2AC") class_code = "2A";
-  if (class_code === "1AC") class_code = "1A";
-  if (class_code === "SLEEPER") class_code = "SL";
   if (!class_code) {
-    const cm = text.match(/\b(SL|3A|2A|1A|CC|EC|3AC|2AC|1AC)\b/i);
-    if (cm) {
-      class_code = cm[1]
-        .toUpperCase()
-        .replace("3AC", "3A")
-        .replace("2AC", "2A")
-        .replace("1AC", "1A");
+    const cm = text.match(/\b(SL|3A|2A|1A|CC|EC|2S|3AC|2AC|1AC)\b/i);
+    if (cm) class_code = normalizeClassCode(cm[1]);
+  }
+
+  // Origin / destination: support "to", "→", "->", Hindi/Hinglish "se"
+  const od = text.match(
+    /^(.+?)\s+(?:to|se|→|->)\s+(.+)$/i,
+  );
+  if (!od) return null;
+  let from = od[1].trim();
+  let rest = od[2].trim();
+
+  // Optional leading "on " before date
+  rest = rest.replace(/^on\s+/i, "");
+
+  // Try to peel a date from the end of destination side
+  let journey_date: string | undefined;
+  // ISO at end
+  let m = rest.match(/^(.*?)\s+(\d{4}-\d{2}-\d{2})$/);
+  if (m && parseNaturalDate(m[2])) {
+    journey_date = parseNaturalDate(m[2]);
+    rest = m[1].trim();
+  }
+  if (!journey_date) {
+    m = rest.match(
+      /^(.*?)\s+(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)$/,
+    );
+    if (m && parseNaturalDate(m[2])) {
+      journey_date = parseNaturalDate(m[2]);
+      rest = m[1].trim();
     }
   }
+  if (!journey_date) {
+    m = rest.match(
+      /^(.*?)\s+((?:\d{1,2}(?:st|nd|rd|th)?\s+)?(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+\d{1,2}(?:st|nd|rd|th)?)?(?:\s+\d{4})?)$/i,
+    );
+    if (m && parseNaturalDate(m[2])) {
+      journey_date = parseNaturalDate(m[2]);
+      rest = m[1].trim();
+    }
+  }
+  if (!journey_date) {
+    m = rest.match(/^(.*?)\s+(today|tomorrow|day after tomorrow)$/i);
+    if (m) {
+      journey_date = parseNaturalDate(m[2]);
+      rest = m[1].trim();
+    }
+  }
+
+  const to = rest.trim();
   if (!from || !to) return null;
+  // Reject if "to" still looks like it swallowed a date fragment poorly
+  if (/^\d{1,2}$/.test(to)) return null;
+
   return { from, to, journey_date, class_code };
 }
 
